@@ -5,7 +5,6 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-
 const routes = require('./routes');
 const initSocket = require('./socket');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
@@ -14,24 +13,30 @@ const logger = require('./config/logger');
 const app = express();
 const server = http.createServer(app);
 
+const allowedOrigin = (origin, callback) => {
+  if (!origin) return callback(null, true);
+  if (origin.endsWith('.vercel.app') || origin === process.env.CLIENT_URL) {
+    return callback(null, true);
+  }
+  callback(new Error('Not allowed by CORS'));
+};
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: allowedOrigin,
     methods: ['GET', 'POST'],
     credentials: true,
   },
 });
 
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }));
+app.use(cors({ origin: allowedOrigin, credentials: true }));
 app.use(morgan('combined', { stream: { write: (msg) => logger.info(msg.trim()) } }));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true }));
-
 app.use(routes);
 app.use(notFound);
 app.use(errorHandler);
-
 initSocket(io);
 
 const PORT = process.env.PORT || 4000;
