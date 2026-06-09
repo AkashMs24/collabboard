@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import api from '../lib/api';
 import { useSocket } from '../context/SocketContext';
 import { useAuthStore } from '../context/authStore';
-import { v4 as uuid } from 'uuid';
+const idempotency_key = crypto.randomUUID();
 
 const PRIORITY_CONFIG = {
   high: { label: 'High', color: '#EF4444' },
@@ -108,7 +108,7 @@ export default function BoardPage() {
   const createTask = async (columnId) => {
     if (!taskForm.title.trim()) return;
     setCreating(true);
-    const idempotency_key = uuid();
+    const idempotency_key = crypto.randomUUID();
     try {
       const { data } = await api.post(
         `/api/boards/${boardId}/columns/${columnId}/tasks`,
