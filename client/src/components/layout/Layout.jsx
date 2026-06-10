@@ -6,6 +6,74 @@ import toast from 'react-hot-toast';
 
 const ADMIN_EMAIL = 'manigarakash@gmail.com';
 
+function SidebarContent({ user, workspaces, showNewWs, wsName, setWsName, setShowNewWs, createWorkspace, handleLogout, setSidebarOpen, initials }) {
+  return (
+    <aside style={{
+      width: 230, background: '#1E293B', borderRight: '1px solid #334155',
+      display: 'flex', flexDirection: 'column', flexShrink: 0, height: '100%'
+    }}>
+      <div style={{ padding: '18px 16px', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ width: 32, height: 32, background: '#0D9488', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'monospace', flexShrink: 0 }}>CB</div>
+        <span style={{ fontSize: 16, fontWeight: 600, color: '#F1F5F9', letterSpacing: -0.3 }}>CollabBoard</span>
+        <button
+          onClick={() => setSidebarOpen(false)}
+          className="mobile-close-btn"
+          style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', fontSize: 20, padding: 0 }}
+        >✕</button>
+      </div>
+
+      <nav style={{ padding: '12px 8px', flex: 1, overflowY: 'auto' }}>
+        <NavItem to="/" icon="⊞" label="Dashboard" end onClick={() => setSidebarOpen(false)} />
+
+        {user?.email === ADMIN_EMAIL && (
+          <NavItem to="/admin" icon="⚙" label="Admin Panel" onClick={() => setSidebarOpen(false)} />
+        )}
+
+        <NavItem to="/ai" icon="✦" label="AI Assistant" onClick={() => setSidebarOpen(false)} />
+
+        <div style={{ fontSize: 10, color: '#475569', letterSpacing: '1.2px', textTransform: 'uppercase', padding: '14px 8px 6px', fontFamily: 'monospace' }}>Workspaces</div>
+
+        {workspaces.map(ws => (
+          <NavItem key={ws.id} to={`/?ws=${ws.id}`} icon="◈" label={ws.name} onClick={() => setSidebarOpen(false)} />
+        ))}
+
+        <button onClick={() => setShowNewWs(true)} style={{
+          display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px',
+          background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13,
+          color: '#64748B', borderRadius: 8, marginTop: 4, fontFamily: "'DM Sans', sans-serif"
+        }}>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> New workspace
+        </button>
+
+        {showNewWs && (
+          <form onSubmit={createWorkspace} style={{ padding: '8px 4px' }}>
+            <input
+              autoFocus value={wsName} onChange={e => setWsName(e.target.value)}
+              placeholder="Workspace name"
+              style={{ width: '100%', background: '#0F172A', border: '1px solid #0D9488', borderRadius: 8, padding: '8px 10px', color: '#F1F5F9', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+            />
+          </form>
+        )}
+      </nav>
+
+      <div style={{ padding: 12, borderTop: '1px solid #334155' }}>
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 10, cursor: 'pointer', transition: 'background .15s' }}
+          onClick={handleLogout}
+          onMouseEnter={e => e.currentTarget.style.background = '#334155'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+        >
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: user?.avatar_color || '#0D9488', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{initials}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#F1F5F9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.name}</div>
+            <div style={{ fontSize: 11, color: '#64748B' }}>Sign out</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
 export default function Layout() {
   const { user, logout } = useAuthStore();
   const [workspaces, setWorkspaces] = useState([]);
@@ -39,94 +107,39 @@ export default function Layout() {
 
   const initials = user?.name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 
-  const Sidebar = () => (
-    <aside style={{
-      width: 230, background: '#1E293B', borderRight: '1px solid #334155',
-      display: 'flex', flexDirection: 'column', flexShrink: 0, height: '100%'
-    }}>
-      <div style={{ padding: '18px 16px', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ width: 32, height: 32, background: '#0D9488', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', fontFamily: 'monospace', flexShrink: 0 }}>CB</div>
-        <span style={{ fontSize: 16, fontWeight: 600, color: '#F1F5F9', letterSpacing: -0.3 }}>CollabBoard</span>
-        <button onClick={() => setSidebarOpen(false)}
-          style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', fontSize: 20, display: window.innerWidth < 768 ? 'block' : 'none', padding: 0 }}>✕</button>
-      </div>
-
-      <nav style={{ padding: '12px 8px', flex: 1, overflowY: 'auto' }}>
-        <NavItem to="/" icon="⊞" label="Dashboard" end onClick={() => setSidebarOpen(false)} />
-
-        {/* Admin link — only visible for your account */}
-        {user?.email === ADMIN_EMAIL && (
-          <NavItem to="/admin" icon="⚙" label="Admin Panel" onClick={() => setSidebarOpen(false)} />
-        )}
-
-        <div style={{ fontSize: 10, color: '#475569', letterSpacing: '1.2px', textTransform: 'uppercase', padding: '14px 8px 6px', fontFamily: 'monospace' }}>Workspaces</div>
-        {workspaces.map(ws => (
-          <NavItem key={ws.id} to={`/?ws=${ws.id}`} icon="◈" label={ws.name} onClick={() => setSidebarOpen(false)} />
-        ))}
-        <button onClick={() => setShowNewWs(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px',
-          background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13,
-          color: '#64748B', borderRadius: 8, marginTop: 4, fontFamily: "'DM Sans', sans-serif"
-        }}>
-          <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> New workspace
-        </button>
-        {showNewWs && (
-          <form onSubmit={createWorkspace} style={{ padding: '8px 4px' }}>
-            <input
-              autoFocus value={wsName} onChange={e => setWsName(e.target.value)}
-              placeholder="Workspace name"
-              style={{ width: '100%', background: '#0F172A', border: '1px solid #0D9488', borderRadius: 8, padding: '8px 10px', color: '#F1F5F9', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-            />
-          </form>
-        )}
-      </nav>
-
-      <div style={{ padding: 12, borderTop: '1px solid #334155' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 10, cursor: 'pointer', transition: 'background .15s' }}
-          onClick={handleLogout}
-          onMouseEnter={e => e.currentTarget.style.background = '#334155'}
-          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-        >
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: user?.avatar_color || '#0D9488', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{initials}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#F1F5F9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.name}</div>
-            <div style={{ fontSize: 11, color: '#64748B' }}>Sign out</div>
-          </div>
-        </div>
-      </div>
-    </aside>
-  );
+  const sidebarProps = { user, workspaces, showNewWs, wsName, setWsName, setShowNewWs, createWorkspace, handleLogout, setSidebarOpen, initials };
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#0F172A', fontFamily: "'DM Sans', sans-serif", overflow: 'hidden' }}>
-      {/* Desktop sidebar */}
-      <div style={{ display: 'none' }} className="desktop-sidebar">
-        <Sidebar />
-      </div>
 
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex' }}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} onClick={() => setSidebarOpen(false)} />
           <div style={{ position: 'relative', width: 250, zIndex: 51 }}>
-            <Sidebar />
+            <SidebarContent {...sidebarProps} />
           </div>
         </div>
       )}
 
-      {/* Always visible sidebar on desktop via flex */}
-      <div style={{ flexShrink: 0 }} id="sidebar-desktop">
-        <Sidebar />
+      {/* Desktop sidebar */}
+      <div id="sidebar-desktop" style={{ flexShrink: 0 }}>
+        <SidebarContent {...sidebarProps} />
       </div>
 
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {/* Mobile topbar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#1E293B', borderBottom: '1px solid #334155' }}
-          className="mobile-topbar">
-          <button onClick={() => setSidebarOpen(true)}
-            style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: 22, padding: 0, lineHeight: 1 }}>☰</button>
+        <div
+          className="mobile-topbar"
+          style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: '#1E293B', borderBottom: '1px solid #334155' }}
+        >
+          <button
+            onClick={() => setSidebarOpen(true)}
+            style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: 22, padding: 0, lineHeight: 1 }}
+          >☰</button>
           <span style={{ fontSize: 15, fontWeight: 600, color: '#F1F5F9' }}>CollabBoard</span>
         </div>
+
         <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <Outlet />
         </main>
@@ -135,11 +148,13 @@ export default function Layout() {
       <style>{`
         @media (min-width: 768px) {
           .mobile-topbar { display: none !important; }
+          .mobile-close-btn { display: none !important; }
           #sidebar-desktop { display: block !important; }
         }
         @media (max-width: 767px) {
           #sidebar-desktop { display: none !important; }
           .mobile-topbar { display: flex !important; }
+          .mobile-close-btn { display: block !important; }
         }
       `}</style>
     </div>
