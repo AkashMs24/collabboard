@@ -50,13 +50,14 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
 
-        {/* Admin route — outside Layout so it has its own full page */}
+        {/* ✅ Admin is OUTSIDE the Layout route — this was the bug */}
         <Route path="/admin" element={
           <AdminRoute>
             <AdminPage />
           </AdminRoute>
         } />
 
+        {/* Layout wraps dashboard + board only */}
         <Route path="/" element={
           <ProtectedRoute>
             <SocketProvider>
