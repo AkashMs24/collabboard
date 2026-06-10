@@ -12,7 +12,7 @@
 
 <br/>
 
-[![Live Demo](https://img.shields.io/badge/🚀%20Live%20Demo-collabboard--kappa.vercel.app-6B5CFF?style=for-the-badge)](https://collabboard-kappa.vercel.app)
+[![Live Demo](https://img.shields.io/badge/🚀%20Live%20Demo-collabboard--kappa.vercel.app-6B5CFF?style=for-the-badge)](https://collabboard-akashms24s-projects.vercel.app/)
 [![API Health](https://img.shields.io/badge/🟢%20API-collabboard--41qb.onrender.com-22C97E?style=for-the-badge)](https://collabboard-41qb.onrender.com/health)
 
 </div>
