@@ -150,7 +150,7 @@ function TaskDetailModal({ task, boardName, boardId, onClose }) {
             <h2 style={{ fontSize: 18, fontWeight: 700, color: '#F1F5F9', marginTop: 10, marginBottom: 8, lineHeight: 1.4 }}>{task.title}</h2>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: p.color, fontFamily: 'monospace' }}>▲ {p.label} priority</span>
-              {task.due_date && <span style={{ fontSize: 12, color: '#64748B', fontFamily: 'monospace' }}>📅 {new Date(task.due_date).toLocaleDateString('en-IN')}</span>}
+              {task.due_date && <span style={{ fontSize: 12, color: new Date(task.due_date) < new Date() ? '#EF4444' : '#64748B', fontFamily: 'monospace' }}>📅 {new Date(task.due_date).toLocaleDateString('en-IN')}</span>}
               {task.assignee_name && <span style={{ fontSize: 12, color: '#64748B' }}>👤 {task.assignee_name}</span>}
             </div>
           </div>
@@ -357,12 +357,17 @@ export default function BoardPage() {
   const [loading, setLoading] = useState(true);
   const [newTaskCol, setNewTaskCol] = useState(null);
   const [taskForm, setTaskForm] = useState({ title: '', description: '', priority: 'medium', tag: 'feat' });
+  const [dueDate, setDueDate] = useState('');
   const [creating, setCreating] = useState(false);
-  const [activeTask, setActiveTask] = useState(null); // for DragOverlay
+  const [activeTask, setActiveTask] = useState(null);
   const [workspaceId, setWorkspaceId] = useState(null);
   const [showStandup, setShowStandup] = useState(false);
   const [standup, setStandup] = useState('');
   const [standupLoading, setStandupLoading] = useState(false);
+
+  // ── Filter state ─────────────────────────────────────────────────────────────
+  const [filterText, setFilterText] = useState('');
+  const [filterPriority, setFilterPriority] = useState('all');
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -374,7 +379,6 @@ export default function BoardPage() {
         const boardRes = await api.get(`/api/boards/${boardId}`);
         setBoard(boardRes.data.board);
         setColumns(boardRes.data.columns);
-        // Get workspaceId for search
         setWorkspaceId(boardRes.data.board.workspace_id);
       } catch {
         toast.error('Failed to load board');
@@ -384,7 +388,6 @@ export default function BoardPage() {
     load();
   }, [boardId]);
 
-  // Socket setup — cursors + real-time events
   useEffect(() => {
     const socket = socketRef?.current;
     if (!socket || !board) return;
@@ -415,13 +418,10 @@ export default function BoardPage() {
       setColumns(prev => prev.map(col => ({ ...col, tasks: col.tasks.filter(t => t.id !== taskId) })));
     });
 
-    // Live cursors
     socket.on('cursor:move', ({ userId, name, color, x, y }) => {
       setCursors(prev => ({ ...prev, [userId]: { name, color, x, y } }));
     });
 
-    // Broadcast own cursor every 50ms
-    const boardEl = document.getElementById('board-canvas');
     const onMouseMove = (e) => {
       socket.emit('cursor:move', { boardId, x: e.clientX, y: e.clientY });
     };
@@ -473,7 +473,6 @@ export default function BoardPage() {
     const position = newCol.tasks.findIndex(t => t.id === over.id);
     const finalPos = position === -1 ? newCol.tasks.length : position;
 
-    // Reorder within same column
     if (activeCol.id === overCol.id) {
       setColumns(prev => prev.map(col => {
         if (col.id !== activeCol.id) return col;
@@ -498,11 +497,16 @@ export default function BoardPage() {
     setCreating(true);
     const idempotency_key = crypto.randomUUID();
     try {
-      const { data } = await api.post(`/api/boards/${boardId}/columns/${columnId}/tasks`, { ...taskForm, idempotency_key });
+      const { data } = await api.post(`/api/boards/${boardId}/columns/${columnId}/tasks`, {
+        ...taskForm,
+        due_date: dueDate || null,
+        idempotency_key,
+      });
       setColumns(prev => prev.map(col => col.id === columnId ? { ...col, tasks: [...col.tasks, data.task] } : col));
       socketRef?.current?.emit('task:created', { task: data.task, boardId });
       setNewTaskCol(null);
       setTaskForm({ title: '', description: '', priority: 'medium', tag: 'feat' });
+      setDueDate('');
       toast.success('Task created');
     } catch (err) { toast.error(err.response?.data?.error || 'Failed'); }
     finally { setCreating(false); }
@@ -516,7 +520,6 @@ export default function BoardPage() {
     } catch { toast.error('Delete failed'); }
   };
 
-  // AI: add generated tasks to board
   const handleAITasksGenerated = async (aiData) => {
     const colMap = {};
     columns.forEach(c => { colMap[c.name] = c; });
@@ -534,7 +537,6 @@ export default function BoardPage() {
     }
   };
 
-  // AI: Standup report
   const generateStandup = async () => {
     setStandupLoading(true);
     setShowStandup(true);
@@ -547,6 +549,14 @@ export default function BoardPage() {
 
   const totalTasks = columns.reduce((s, c) => s + c.tasks.length, 0);
   const isEmpty = totalTasks === 0;
+
+  // ── Filter helper ─────────────────────────────────────────────────────────────
+  const filteredTasks = (colTasks) =>
+    colTasks
+      .filter(t => filterPriority === 'all' || t.priority === filterPriority)
+      .filter(t => !filterText || t.title.toLowerCase().includes(filterText.toLowerCase()));
+
+  const activeFilters = filterText || filterPriority !== 'all';
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, background: '#0F172A' }}>
@@ -569,21 +579,17 @@ export default function BoardPage() {
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {/* Search */}
           <SearchBar workspaceId={workspaceId} onNavigateBoard={(bid) => navigate(`/board/${bid}`)} />
 
-          {/* Standup button */}
           <button onClick={generateStandup}
             style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px', borderRadius: 8, border: '1px solid #22C97E40', background: '#22C97E15', color: '#22C97E', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 500, whiteSpace: 'nowrap' }}>
             📋 Standup
           </button>
 
-          {/* Live indicator */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#2DD4BF', background: '#0D948820', padding: '4px 10px', borderRadius: 20, border: '1px solid #0D948840', fontFamily: 'monospace' }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#2DD4BF', animation: 'pulse 2s infinite' }} /> live
           </div>
 
-          {/* Online users */}
           <div style={{ display: 'flex' }}>
             {onlineUsers.filter(u => u.id !== user?.id).slice(0, 4).map((u, i) => (
               <div key={u.id} title={u.name} style={{ width: 26, height: 26, borderRadius: '50%', background: u.avatar_color || '#0D9488', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', border: '2px solid #1E293B', marginLeft: i > 0 ? -7 : 0 }}>
@@ -592,6 +598,51 @@ export default function BoardPage() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* ── Filter Bar ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderBottom: '1px solid #1E293B', background: '#0F172A', flexWrap: 'wrap', flexShrink: 0 }}>
+        <input
+          value={filterText}
+          onChange={e => setFilterText(e.target.value)}
+          placeholder="🔍  Filter tasks by title..."
+          style={{
+            background: '#1E293B', border: '1px solid #334155', borderRadius: 8,
+            padding: '6px 12px', color: '#F1F5F9', fontSize: 13, outline: 'none',
+            width: 210, fontFamily: "'DM Sans', sans-serif",
+          }}
+        />
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace', marginRight: 2 }}>PRIORITY</span>
+          {['all', 'high', 'medium', 'low'].map(p => (
+            <button key={p} onClick={() => setFilterPriority(p)}
+              style={{
+                padding: '5px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
+                border: filterPriority === p ? 'none' : '1px solid #334155',
+                fontFamily: 'monospace',
+                background: filterPriority === p ? '#0D9488' : 'transparent',
+                color: filterPriority === p ? '#fff' : '#64748B',
+                transition: 'all .15s',
+              }}>
+              {p === 'all' ? 'All' : p.charAt(0).toUpperCase() + p.slice(1)}
+            </button>
+          ))}
+        </div>
+        {activeFilters && (
+          <button onClick={() => { setFilterText(''); setFilterPriority('all'); }}
+            style={{
+              padding: '5px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
+              border: '1px solid #EF444440', background: '#EF444410', color: '#EF4444',
+              fontFamily: 'monospace',
+            }}>
+            ✕ Clear
+          </button>
+        )}
+        {activeFilters && (
+          <span style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace' }}>
+            {columns.reduce((acc, col) => acc + filteredTasks(col.tasks).length, 0)} matching
+          </span>
+        )}
       </div>
 
       {/* AI Standup Modal */}
@@ -622,107 +673,130 @@ export default function BoardPage() {
         <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
           <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', minWidth: 'max-content' }}>
 
-            {/* AI Generate panel when board is empty */}
             {isEmpty && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16, minWidth: 320 }}>
                 <AIGeneratePanel boardName={board?.name} columns={columns} onTasksGenerated={handleAITasksGenerated} />
               </div>
             )}
 
-            {columns.map(col => (
-              <div key={col.id} style={{ width: 'clamp(250px, 80vw, 285px)', flexShrink: 0, background: '#1E293B', border: '1px solid #334155', borderRadius: 14, overflow: 'visible' }}>
-                {/* Column Header */}
-                <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: col.color, flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'monospace', color: '#94A3B8' }}>{col.name}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 11, background: '#0F172A', color: '#475569', padding: '2px 8px', borderRadius: 20, fontFamily: 'monospace' }}>{col.tasks.length}</span>
-                </div>
+            {columns.map(col => {
+              const visibleTasks = filteredTasks(col.tasks);
+              return (
+                <div key={col.id} style={{ width: 'clamp(250px, 80vw, 285px)', flexShrink: 0, background: '#1E293B', border: '1px solid #334155', borderRadius: 14, overflow: 'visible' }}>
+                  {/* Column Header */}
+                  <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: col.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase', fontFamily: 'monospace', color: '#94A3B8' }}>{col.name}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, background: '#0F172A', color: activeFilters ? '#0D9488' : '#475569', padding: '2px 8px', borderRadius: 20, fontFamily: 'monospace' }}>
+                      {activeFilters ? `${visibleTasks.length}/${col.tasks.length}` : col.tasks.length}
+                    </span>
+                  </div>
 
-                {/* Tasks */}
-                <div style={{ padding: '10px 10px 6px' }}>
-                  <SortableContext items={col.tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-                    <DroppableColumn id={col.id}>
-                      {col.tasks.map(task => (
-                        <SortableTaskCard key={task.id} task={task} columns={columns}
-                          onMove={(toColId) => handleDragEnd({ active: { id: task.id }, over: { id: toColId } })}
-                          onDelete={() => deleteTask(task.id, col.id)}
-                          boardName={board?.name} boardId={boardId}
-                        />
-                      ))}
-                    </DroppableColumn>
-                  </SortableContext>
-
-                  {/* New Task Form */}
-                  {newTaskCol === col.id ? (
-                    <div style={{ background: '#0F172A', border: '1px solid #0D948860', borderRadius: 10, padding: 12, marginTop: 6 }}>
-                      <input
-                        autoFocus value={taskForm.title}
-                        onChange={e => setTaskForm(p => ({ ...p, title: e.target.value }))}
-                        onKeyDown={e => { if (e.key === 'Enter') createTask(col.id); if (e.key === 'Escape') setNewTaskCol(null); }}
-                        placeholder="Task title..."
-                        style={{ width: '100%', background: 'transparent', border: 'none', color: '#F1F5F9', fontSize: 14, outline: 'none', marginBottom: 8, boxSizing: 'border-box', fontFamily: "'DM Sans', sans-serif" }}
-                      />
-
-                      {/* AI Write button */}
-                      <div style={{ marginBottom: 8 }}>
-                        <AIDescriptionButton
-                          taskTitle={taskForm.title}
-                          boardName={board?.name}
-                          onGenerated={(desc) => setTaskForm(p => ({ ...p, description: desc }))}
-                        />
-                        {taskForm.description && (
-                          <div style={{ marginTop: 6, fontSize: 11, color: '#64748B', background: '#0F172A', border: '1px solid #334155', borderRadius: 6, padding: '6px 8px', lineHeight: 1.5 }}>
-                            {taskForm.description.slice(0, 120)}...
+                  {/* Tasks */}
+                  <div style={{ padding: '10px 10px 6px' }}>
+                    <SortableContext items={col.tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                      <DroppableColumn id={col.id}>
+                        {visibleTasks.map(task => (
+                          <SortableTaskCard key={task.id} task={task} columns={columns}
+                            onMove={(toColId) => handleDragEnd({ active: { id: task.id }, over: { id: toColId } })}
+                            onDelete={() => deleteTask(task.id, col.id)}
+                            boardName={board?.name} boardId={boardId}
+                          />
+                        ))}
+                        {activeFilters && visibleTasks.length === 0 && (
+                          <div style={{ padding: '14px 10px', fontSize: 12, color: '#475569', textAlign: 'center', fontFamily: 'monospace' }}>
+                            No matches
                           </div>
                         )}
-                      </div>
+                      </DroppableColumn>
+                    </SortableContext>
 
-                      {/* Priority */}
-                      <div style={{ display: 'flex', gap: 5, marginBottom: 8, flexWrap: 'wrap' }}>
-                        {['high', 'medium', 'low'].map(pr => (
-                          <button key={pr} onClick={() => setTaskForm(f => ({ ...f, priority: pr }))}
-                            style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, border: `1px solid ${taskForm.priority === pr ? PRIORITY_CONFIG[pr].color : '#334155'}`, background: taskForm.priority === pr ? `${PRIORITY_CONFIG[pr].color}20` : 'transparent', color: taskForm.priority === pr ? PRIORITY_CONFIG[pr].color : '#64748B', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
-                            {PRIORITY_CONFIG[pr].label}
+                    {/* New Task Form */}
+                    {newTaskCol === col.id ? (
+                      <div style={{ background: '#0F172A', border: '1px solid #0D948860', borderRadius: 10, padding: 12, marginTop: 6 }}>
+                        <input
+                          autoFocus value={taskForm.title}
+                          onChange={e => setTaskForm(p => ({ ...p, title: e.target.value }))}
+                          onKeyDown={e => { if (e.key === 'Enter') createTask(col.id); if (e.key === 'Escape') setNewTaskCol(null); }}
+                          placeholder="Task title..."
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#F1F5F9', fontSize: 14, outline: 'none', marginBottom: 8, boxSizing: 'border-box', fontFamily: "'DM Sans', sans-serif" }}
+                        />
+
+                        {/* AI Write button */}
+                        <div style={{ marginBottom: 8 }}>
+                          <AIDescriptionButton
+                            taskTitle={taskForm.title}
+                            boardName={board?.name}
+                            onGenerated={(desc) => setTaskForm(p => ({ ...p, description: desc }))}
+                          />
+                          {taskForm.description && (
+                            <div style={{ marginTop: 6, fontSize: 11, color: '#64748B', background: '#0F172A', border: '1px solid #334155', borderRadius: 6, padding: '6px 8px', lineHeight: 1.5 }}>
+                              {taskForm.description.slice(0, 120)}...
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Priority */}
+                        <div style={{ display: 'flex', gap: 5, marginBottom: 8, flexWrap: 'wrap' }}>
+                          {['high', 'medium', 'low'].map(pr => (
+                            <button key={pr} onClick={() => setTaskForm(f => ({ ...f, priority: pr }))}
+                              style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, border: `1px solid ${taskForm.priority === pr ? PRIORITY_CONFIG[pr].color : '#334155'}`, background: taskForm.priority === pr ? `${PRIORITY_CONFIG[pr].color}20` : 'transparent', color: taskForm.priority === pr ? PRIORITY_CONFIG[pr].color : '#64748B', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
+                              {PRIORITY_CONFIG[pr].label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Tags */}
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
+                          {TAG_OPTIONS.map(t => (
+                            <button key={t} onClick={() => setTaskForm(f => ({ ...f, tag: t }))}
+                              style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, border: `1px solid ${taskForm.tag === t ? '#0D9488' : '#334155'}`, background: taskForm.tag === t ? '#0D948820' : 'transparent', color: taskForm.tag === t ? '#2DD4BF' : '#64748B', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Due Date */}
+                        <input
+                          type="date"
+                          value={dueDate}
+                          onChange={e => setDueDate(e.target.value)}
+                          style={{
+                            width: '100%', background: '#0F172A', border: '1px solid #334155',
+                            borderRadius: 8, padding: '7px 10px', color: dueDate ? '#F1F5F9' : '#475569',
+                            fontSize: 12, outline: 'none', boxSizing: 'border-box',
+                            fontFamily: "'DM Sans', sans-serif", marginBottom: 10,
+                            colorScheme: 'dark',
+                          }}
+                        />
+
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button onClick={() => createTask(col.id)} disabled={creating}
+                            style={{ background: '#0D9488', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 500 }}>
+                            {creating ? '...' : 'Add'}
                           </button>
-                        ))}
-                      </div>
-
-                      {/* Tags */}
-                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 10 }}>
-                        {TAG_OPTIONS.map(t => (
-                          <button key={t} onClick={() => setTaskForm(f => ({ ...f, tag: t }))}
-                            style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, border: `1px solid ${taskForm.tag === t ? '#0D9488' : '#334155'}`, background: taskForm.tag === t ? '#0D948820' : 'transparent', color: taskForm.tag === t ? '#2DD4BF' : '#64748B', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
-                            {t}
+                          <button onClick={() => { setNewTaskCol(null); setTaskForm({ title: '', description: '', priority: 'medium', tag: 'feat' }); setDueDate(''); }}
+                            style={{ background: 'transparent', color: '#64748B', border: '1px solid #334155', borderRadius: 8, padding: '7px 12px', fontSize: 13, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
+                            Cancel
                           </button>
-                        ))}
+                        </div>
                       </div>
-
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => createTask(col.id)} disabled={creating}
-                          style={{ background: '#0D9488', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 500 }}>
-                          {creating ? '...' : 'Add'}
-                        </button>
-                        <button onClick={() => { setNewTaskCol(null); setTaskForm({ title: '', description: '', priority: 'medium', tag: 'feat' }); }}
-                          style={{ background: 'transparent', color: '#64748B', border: '1px solid #334155', borderRadius: 8, padding: '7px 12px', fontSize: 13, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button onClick={() => setNewTaskCol(col.id)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', border: '1px dashed #334155', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 13, color: '#475569', fontFamily: "'DM Sans', sans-serif", width: '100%', marginTop: 6, transition: 'all .15s' }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#0D9488'; e.currentTarget.style.color = '#2DD4BF'; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#475569'; }}>
-                      + Add task
-                    </button>
-                  )}
+                    ) : (
+                      <button onClick={() => setNewTaskCol(col.id)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', border: '1px dashed #334155', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 13, color: '#475569', fontFamily: "'DM Sans', sans-serif", width: '100%', marginTop: 6, transition: 'all .15s' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#0D9488'; e.currentTarget.style.color = '#2DD4BF'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#475569'; }}>
+                        + Add task
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
-        {/* Drag Overlay — ghost card while dragging */}
+        {/* Drag Overlay */}
         <DragOverlay>
           {activeTask && (
             <div style={{ background: '#0F172A', border: '1px solid #0D9488', borderRadius: 10, padding: 12, opacity: 0.95, boxShadow: '0 16px 40px rgba(0,0,0,0.6)', cursor: 'grabbing', maxWidth: 285 }}>
