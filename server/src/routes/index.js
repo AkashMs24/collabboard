@@ -5,13 +5,63 @@ const authCtrl = require('../controllers/authController');
 const boardCtrl = require('../controllers/boardController');
 const taskCtrl = require('../controllers/taskController');
 const pool = require('../config/db');
-
 const router = express.Router();
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many attempts' } });
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Rate limit exceeded' } });
-
 router.use('/api', apiLimiter);
+
+// ─── ADMIN ───────────────────────────────────────────────────────────────────
+const ADMIN_EMAIL = 'manigarakash@gmail.com';
+
+const adminOnly = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(403).json({ error: 'Forbidden' });
+    const token = authHeader.split(' ')[1];
+    const jwt = require('jsonwebtoken');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    req.user = decoded;
+    next();
+  } catch {
+    res.status(403).json({ error: 'Forbidden' });
+  }
+};
+
+router.get('/api/admin/users', adminOnly, async (req, res, next) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        u.id, u.name, u.email, u.avatar_color, u.created_at,
+        (SELECT COUNT(*) FROM workspace_members wm WHERE wm.user_id = u.id) as workspace_count,
+        (SELECT MAX(rt.created_at) FROM refresh_tokens rt WHERE rt.user_id = u.id) as last_login
+      FROM users u
+      ORDER BY u.created_at DESC
+    `);
+    res.json({ users: result.rows });
+  } catch (err) { next(err); }
+});
+
+router.get('/api/admin/stats', adminOnly, async (req, res, next) => {
+  try {
+    const [users, workspaces, boards, tasks, today] = await Promise.all([
+      pool.query('SELECT COUNT(*) FROM users'),
+      pool.query('SELECT COUNT(*) FROM workspaces'),
+      pool.query('SELECT COUNT(*) FROM boards'),
+      pool.query('SELECT COUNT(*) FROM tasks'),
+      pool.query("SELECT COUNT(*) FROM users WHERE created_at > NOW() - INTERVAL '24 hours'"),
+    ]);
+    res.json({
+      total_users: parseInt(users.rows[0].count),
+      total_workspaces: parseInt(workspaces.rows[0].count),
+      total_boards: parseInt(boards.rows[0].count),
+      total_tasks: parseInt(tasks.rows[0].count),
+      new_today: parseInt(today.rows[0].count),
+    });
+  } catch (err) { next(err); }
+});
+// ─── END ADMIN ────────────────────────────────────────────────────────────────
 
 // Health
 router.get('/health', async (req, res) => {
@@ -49,7 +99,6 @@ router.post('/api/workspaces', authenticate, async (req, res, next) => {
   try {
     const { name, description } = req.body;
     if (!name) return res.status(400).json({ error: 'Workspace name required' });
-
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
