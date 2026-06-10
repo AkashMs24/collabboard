@@ -4,6 +4,8 @@ import { useAuthStore } from '../../context/authStore';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
 
+const ADMIN_EMAIL = 'manigarakash@gmail.com';
+
 export default function Layout() {
   const { user, logout } = useAuthStore();
   const [workspaces, setWorkspaces] = useState([]);
@@ -51,6 +53,12 @@ export default function Layout() {
 
       <nav style={{ padding: '12px 8px', flex: 1, overflowY: 'auto' }}>
         <NavItem to="/" icon="⊞" label="Dashboard" end onClick={() => setSidebarOpen(false)} />
+
+        {/* Admin link — only visible for your account */}
+        {user?.email === ADMIN_EMAIL && (
+          <NavItem to="/admin" icon="⚙" label="Admin Panel" onClick={() => setSidebarOpen(false)} />
+        )}
+
         <div style={{ fontSize: 10, color: '#475569', letterSpacing: '1.2px', textTransform: 'uppercase', padding: '14px 8px 6px', fontFamily: 'monospace' }}>Workspaces</div>
         {workspaces.map(ws => (
           <NavItem key={ws.id} to={`/?ws=${ws.id}`} icon="◈" label={ws.name} onClick={() => setSidebarOpen(false)} />
