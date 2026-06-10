@@ -1,162 +1,277 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../lib/api';
+import { useSocket } from '../context/SocketContext';
 import { useAuthStore } from '../context/authStore';
 
-const TAG_COLORS = { '#0D9488': 'teal', '#3B82F6': 'blue', '#F59E0B': 'amber', '#EF4444': 'red', '#8B5CF6': 'purple' };
-const COLORS = Object.keys(TAG_COLORS);
+const PRIORITY_CONFIG = {
+  high: { label: 'High', color: '#EF4444' },
+  medium: { label: 'Med', color: '#F59E0B' },
+  low: { label: 'Low', color: '#22C97E' },
+};
 
-export default function DashboardPage() {
-  const { user } = useAuthStore();
+const TAG_OPTIONS = ['feat', 'bug', 'infra', 'docs', 'test', 'security', 'design'];
+
+export default function BoardPage() {
+  const { boardId } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const wsId = searchParams.get('ws');
+  const { user } = useAuthStore();
+  const socketRef = useSocket();
 
-  const [workspaces, setWorkspaces] = useState([]);
-  const [boards, setBoards] = useState([]);
-  const [activeWs, setActiveWs] = useState(null);
-  const [showNewBoard, setShowNewBoard] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', color: '#0D9488' });
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    api.get('/api/workspaces').then(r => {
-      setWorkspaces(r.data.workspaces);
-      const ws = wsId ? r.data.workspaces.find(w => w.id === wsId) : r.data.workspaces[0];
-      if (ws) setActiveWs(ws);
-    }).catch(() => {});
-  }, [wsId]);
+  const [board, setBoard] = useState(null);
+  const [columns, setColumns] = useState([]);
+  const [activity, setActivity] = useState([]);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newTaskCol, setNewTaskCol] = useState(null);
+  const [taskForm, setTaskForm] = useState({ title: '', priority: 'medium', tag: 'feat' });
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    if (!activeWs) return;
-    api.get(`/api/workspaces/${activeWs.id}/boards`).then(r => setBoards(r.data.boards)).catch(() => {});
-  }, [activeWs]);
+    const load = async () => {
+      try {
+        const [boardRes, actRes] = await Promise.all([
+          api.get(`/api/boards/${boardId}`),
+          api.get(`/api/boards/${boardId}/activity`),
+        ]);
+        setBoard(boardRes.data.board);
+        setColumns(boardRes.data.columns);
+        setActivity(actRes.data.activity);
+      } catch {
+        toast.error('Failed to load board');
+        navigate('/');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [boardId]);
 
-  const createBoard = async (e) => {
-    e.preventDefault();
-    if (!form.name.trim() || !activeWs) return;
-    setLoading(true);
+  useEffect(() => {
+    const socket = socketRef?.current;
+    if (!socket || !board) return;
+    socket.emit('board:join', boardId);
+    socket.on('board:online_users', ({ users }) => setOnlineUsers(users));
+    socket.on('user:joined', ({ user: u }) => setOnlineUsers(p => [...p.filter(x => x.id !== u.id), u]));
+    socket.on('user:left', ({ userId }) => setOnlineUsers(p => p.filter(x => x.id !== userId)));
+    socket.on('task:created', ({ task, columnId }) => {
+      setColumns(prev => prev.map(col =>
+        col.id === (task.column_id || columnId) ? { ...col, tasks: [...col.tasks, task] } : col
+      ));
+    });
+    socket.on('task:moved', ({ task }) => {
+      setColumns(prev => {
+        const updated = prev.map(col => ({ ...col, tasks: col.tasks.filter(t => t.id !== task.id) }));
+        return updated.map(col =>
+          col.id === task.column_id ? { ...col, tasks: [...col.tasks, task].sort((a, b) => a.position - b.position) } : col
+        );
+      });
+    });
+    socket.on('task:updated', ({ task }) => {
+      setColumns(prev => prev.map(col => ({ ...col, tasks: col.tasks.map(t => t.id === task.id ? { ...t, ...task } : t) })));
+    });
+    socket.on('task:deleted', ({ taskId }) => {
+      setColumns(prev => prev.map(col => ({ ...col, tasks: col.tasks.filter(t => t.id !== taskId) })));
+    });
+    return () => {
+      socket.emit('board:leave', boardId);
+      ['board:online_users','user:joined','user:left','task:created','task:moved','task:updated','task:deleted'].forEach(e => socket.off(e));
+    };
+  }, [board, boardId, socketRef]);
+
+  const createTask = async (columnId) => {
+    if (!taskForm.title.trim()) return;
+    setCreating(true);
+    const idempotency_key = crypto.randomUUID();
     try {
-      const { data } = await api.post(`/api/workspaces/${activeWs.id}/boards`, form);
-      setBoards(p => [data.board, ...p]);
-      setShowNewBoard(false);
-      setForm({ name: '', description: '', color: '#0D9488' });
-      toast.success('Board created');
+      const { data } = await api.post(`/api/boards/${boardId}/columns/${columnId}/tasks`, { ...taskForm, idempotency_key });
+      setColumns(prev => prev.map(col => col.id === columnId ? { ...col, tasks: [...col.tasks, data.task] } : col));
+      socketRef?.current?.emit('task:created', { task: data.task, boardId, columnId });
+      setNewTaskCol(null);
+      setTaskForm({ title: '', priority: 'medium', tag: 'feat' });
+      toast.success('Task created');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed');
     } finally {
-      setLoading(false);
+      setCreating(false);
     }
   };
 
+  const moveTask = async (taskId, fromColId, toColId) => {
+    if (fromColId === toColId) return;
+    const toCol = columns.find(c => c.id === toColId);
+    const position = toCol.tasks.length;
+    let movedTask;
+    setColumns(prev => {
+      const updated = prev.map(col => {
+        if (col.id === fromColId) { movedTask = col.tasks.find(t => t.id === taskId); return { ...col, tasks: col.tasks.filter(t => t.id !== taskId) }; }
+        return col;
+      });
+      return updated.map(col => col.id === toColId && movedTask ? { ...col, tasks: [...col.tasks, { ...movedTask, column_id: toColId, position }] } : col);
+    });
+    try {
+      const { data } = await api.patch(`/api/tasks/${taskId}/move`, { column_id: toColId, position, board_id: boardId });
+      socketRef?.current?.emit('task:moved', { task: data.task, boardId });
+    } catch { toast.error('Move failed'); }
+  };
+
+  const deleteTask = async (taskId, columnId) => {
+    try {
+      await api.delete(`/api/tasks/${taskId}`);
+      setColumns(prev => prev.map(col => col.id === columnId ? { ...col, tasks: col.tasks.filter(t => t.id !== taskId) } : col));
+      socketRef?.current?.emit('task:deleted', { taskId, boardId });
+    } catch { toast.error('Delete failed'); }
+  };
+
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, background: '#0F172A' }}>
+      <div style={{ color: '#64748B', fontSize: 15 }}>Loading board...</div>
+    </div>
+  );
+
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: 32, color: '#111827', background: '#F9FAFB' }}>
-      <div style={{ maxWidth: 900, margin: '0 auto' }}>
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ fontSize: 26, fontWeight: 500, letterSpacing: -0.5, margin: 0, color: '#111827' }}>
-            Good morning, {user?.name?.split(' ')[0]} 👋
-          </h1>
-          <p style={{ color: '#6B7280', fontSize: 13, marginTop: 6 }}>
-            {activeWs ? activeWs.name : 'Select a workspace to get started'}
-          </p>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0F172A', fontFamily: "'DM Sans', sans-serif", color: '#F1F5F9' }}>
+      {/* Topbar */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #1E293B', background: '#1E293B', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
+        <button onClick={() => navigate('/')} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', fontSize: 20, padding: 0 }}>←</button>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: -0.3, color: '#F1F5F9' }}>{board?.name}</div>
+          <div style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace' }}>{columns.reduce((s, c) => s + c.tasks.length, 0)} tasks</div>
         </div>
-
-        {workspaces.length === 0 && (
-          <div style={{
-            textAlign: 'center', padding: '60px 0', background: '#FFFFFF',
-            borderRadius: 16, border: '1px dashed #D1D5DB'
-          }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⊞</div>
-            <p style={{ color: '#6B7280', fontSize: 14, margin: 0 }}>No workspaces yet.</p>
-            <p style={{ color: '#9CA3AF', fontSize: 13, marginTop: 4 }}>Create one from the sidebar.</p>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#2DD4BF', background: '#0D948820', padding: '4px 12px', borderRadius: 20, border: '1px solid #0D948840', fontFamily: 'monospace' }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#2DD4BF' }} />
+            live sync
           </div>
-        )}
-
-        {activeWs && (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: '#9CA3AF', fontFamily: 'monospace', letterSpacing: '1px', textTransform: 'uppercase' }}>
-                Boards · {boards.length}
+          <div style={{ display: 'flex' }}>
+            {onlineUsers.filter(u => u.id !== user?.id).slice(0, 4).map((u, i) => (
+              <div key={u.id} title={u.name} style={{ width: 28, height: 28, borderRadius: '50%', background: u.avatar_color || '#0D9488', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: '#fff', border: '2px solid #1E293B', marginLeft: i > 0 ? -8 : 0 }}>
+                {u.name?.slice(0, 2).toUpperCase()}
               </div>
-              <button onClick={() => setShowNewBoard(true)} style={{
-                display: 'flex', alignItems: 'center', gap: 6, background: '#0D9488',
-                color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px',
-                fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
-                transition: 'background .15s'
-              }}
-                onMouseEnter={e => e.target.style.background = '#0F766E'}
-                onMouseLeave={e => e.target.style.background = '#0D9488'}
-              >+ New board</button>
-            </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
-            {showNewBoard && (
-              <form onSubmit={createBoard} style={{
-                background: '#FFFFFF', border: '1px solid #0D948840', borderRadius: 12,
-                padding: 20, marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
-              }}>
-                <input
-                  autoFocus value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-                  placeholder="Board name" required
-                  style={{ width: '100%', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, padding: '9px 12px', color: '#111827', fontSize: 14, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }}
-                  onFocus={e => e.target.style.borderColor = '#0D9488'}
-                  onBlur={e => e.target.style.borderColor = '#E5E7EB'}
-                />
-                <input
-                  value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
-                  placeholder="Description (optional)"
-                  style={{ width: '100%', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, padding: '9px 12px', color: '#111827', fontSize: 14, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }}
-                  onFocus={e => e.target.style.borderColor = '#0D9488'}
-                  onBlur={e => e.target.style.borderColor = '#E5E7EB'}
-                />
-                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                  {COLORS.map(c => (
-                    <div key={c} onClick={() => setForm(p => ({ ...p, color: c }))}
-                      style={{ width: 22, height: 22, borderRadius: '50%', background: c, cursor: 'pointer', border: form.color === c ? '3px solid #111827' : '2px solid transparent', transition: 'border .15s' }} />
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button type="submit" disabled={loading} style={{ background: '#0D9488', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
-                    {loading ? 'Creating...' : 'Create'}
-                  </button>
-                  <button type="button" onClick={() => setShowNewBoard(false)} style={{ background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', borderRadius: 8, padding: '8px 16px', fontSize: 13, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
+      {/* Columns */}
+      <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+        <div style={{ display: 'flex', gap: 14, height: '100%', alignItems: 'flex-start', minWidth: 'max-content' }}>
+          {columns.map(col => (
+            <div key={col.id} style={{ width: 'clamp(240px, 80vw, 280px)', flexShrink: 0, background: '#1E293B', border: '1px solid #334155', borderRadius: 14, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid #334155', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: col.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.5px', textTransform: 'uppercase', fontFamily: 'monospace', color: '#94A3B8' }}>{col.name}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 11, background: '#0F172A', color: '#475569', padding: '2px 8px', borderRadius: 20, fontFamily: 'monospace' }}>{col.tasks.length}</span>
+              </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
-              {boards.map(board => (
-                <div key={board.id} onClick={() => navigate(`/board/${board.id}`)}
-                  style={{
-                    background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 14,
-                    padding: 20, cursor: 'pointer', transition: 'all .2s', position: 'relative',
-                    overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = board.color; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#E5E7EB'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'; }}
-                >
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: board.color, borderRadius: '14px 14px 0 0' }} />
-                  <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6, marginTop: 4, color: '#111827' }}>{board.name}</div>
-                  {board.description && <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 12, lineHeight: 1.4 }}>{board.description}</div>}
-                  <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace' }}>
-                    {board.open_tasks} open tasks
+              <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {col.tasks.map(task => (
+                  <TaskCard key={task.id} task={task} columns={columns}
+                    onMove={(toColId) => moveTask(task.id, col.id, toColId)}
+                    onDelete={() => deleteTask(task.id, col.id)}
+                  />
+                ))}
+
+                {newTaskCol === col.id ? (
+                  <div style={{ background: '#0F172A', border: '1px solid #0D948860', borderRadius: 10, padding: 12 }}>
+                    <input
+                      autoFocus value={taskForm.title}
+                      onChange={e => setTaskForm(p => ({ ...p, title: e.target.value }))}
+                      onKeyDown={e => { if (e.key === 'Enter') createTask(col.id); if (e.key === 'Escape') setNewTaskCol(null); }}
+                      placeholder="Task title..."
+                      style={{ width: '100%', background: 'transparent', border: 'none', color: '#F1F5F9', fontSize: 14, outline: 'none', marginBottom: 10, boxSizing: 'border-box' }}
+                    />
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                      {['high', 'medium', 'low'].map(p => (
+                        <button key={p} onClick={() => setTaskForm(f => ({ ...f, priority: p }))}
+                          style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, border: `1px solid ${taskForm.priority === p ? PRIORITY_CONFIG[p].color : '#334155'}`, background: 'transparent', color: taskForm.priority === p ? PRIORITY_CONFIG[p].color : '#64748B', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
+                          {PRIORITY_CONFIG[p].label}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                      {TAG_OPTIONS.map(t => (
+                        <button key={t} onClick={() => setTaskForm(f => ({ ...f, tag: t }))}
+                          style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, border: `1px solid ${taskForm.tag === t ? '#0D9488' : '#334155'}`, background: taskForm.tag === t ? '#0D948820' : 'transparent', color: taskForm.tag === t ? '#2DD4BF' : '#64748B', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => createTask(col.id)} disabled={creating}
+                        style={{ background: '#0D9488', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 500 }}>
+                        {creating ? '...' : 'Add'}
+                      </button>
+                      <button onClick={() => setNewTaskCol(null)}
+                        style={{ background: 'transparent', color: '#64748B', border: '1px solid #334155', borderRadius: 8, padding: '7px 12px', fontSize: 13, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-
-            {boards.length === 0 && !showNewBoard && (
-              <div style={{
-                textAlign: 'center', padding: '50px 0', background: '#FFFFFF',
-                borderRadius: 16, border: '1px dashed #D1D5DB'
-              }}>
-                <p style={{ color: '#6B7280', fontSize: 14, margin: 0 }}>No boards yet in this workspace.</p>
+                ) : (
+                  <button onClick={() => setNewTaskCol(col.id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', border: '1px dashed #334155', borderRadius: 8, background: 'transparent', cursor: 'pointer', fontSize: 13, color: '#475569', fontFamily: "'DM Sans', sans-serif", width: '100%', transition: 'all .15s' }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = '#0D9488'; e.currentTarget.style.color = '#2DD4BF'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.color = '#475569'; }}
+                  >
+                    + Add task
+                  </button>
+                )}
               </div>
-            )}
-          </>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskCard({ task, columns, onMove, onDelete }) {
+  const [showMenu, setShowMenu] = useState(false);
+  const p = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
+
+  return (
+    <div style={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 10, padding: 12, cursor: 'default', position: 'relative', transition: 'border-color .15s' }}
+      onMouseEnter={e => e.currentTarget.style.borderColor = '#334155'}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = '#1E293B'; setShowMenu(false); }}
+    >
+      {task.tag && (
+        <div style={{ display: 'inline-flex', fontSize: 11, padding: '2px 8px', borderRadius: 20, marginBottom: 8, background: '#0D948820', color: '#2DD4BF', border: '1px solid #0D948840', fontFamily: 'monospace' }}>
+          {task.tag}
+        </div>
+      )}
+      <div style={{ fontSize: 14, lineHeight: 1.5, marginBottom: 10, color: task.is_completed ? '#475569' : '#F1F5F9', textDecoration: task.is_completed ? 'line-through' : 'none', fontWeight: 500 }}>
+        {task.title}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ fontSize: 11, color: p.color, fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 3 }}>
+          <span>▲</span>{p.label}
+        </div>
+        {task.comment_count > 0 && (
+          <div style={{ fontSize: 11, color: '#475569', fontFamily: 'monospace', marginLeft: 4 }}>💬 {task.comment_count}</div>
         )}
+        <div style={{ marginLeft: 'auto', position: 'relative' }}>
+          <button onClick={() => setShowMenu(p => !p)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', fontSize: 16, padding: '0 4px' }}>···</button>
+          {showMenu && (
+            <div style={{ position: 'absolute', right: 0, top: 22, background: '#1E293B', border: '1px solid #334155', borderRadius: 10, padding: 6, zIndex: 10, minWidth: 150, boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
+              <div style={{ fontSize: 10, color: '#475569', padding: '4px 8px', fontFamily: 'monospace', letterSpacing: '0.5px' }}>MOVE TO</div>
+              {columns.filter(c => c.id !== task.column_id).map(c => (
+                <button key={c.id} onClick={() => { onMove(c.id); setShowMenu(false); }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#94A3B8', fontSize: 13, padding: '7px 8px', cursor: 'pointer', borderRadius: 6, fontFamily: "'DM Sans', sans-serif" }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#334155'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                >{c.name}</button>
+              ))}
+              <div style={{ height: 1, background: '#334155', margin: '4px 0' }} />
+              <button onClick={onDelete}
+                style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', color: '#EF4444', fontSize: 13, padding: '7px 8px', cursor: 'pointer', borderRadius: 6, fontFamily: "'DM Sans', sans-serif" }}>
+                Delete task
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
