@@ -7,7 +7,10 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import BoardPage from './pages/BoardPage';
+import AdminPage from './pages/AdminPage';
 import Layout from './components/layout/Layout';
+
+const ADMIN_EMAIL = 'manigarakash@gmail.com';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuthStore();
@@ -17,6 +20,18 @@ const ProtectedRoute = ({ children }) => {
     </div>
   );
   return user ? children : <Navigate to="/login" replace />;
+};
+
+const AdminRoute = ({ children }) => {
+  const { user, loading } = useAuthStore();
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0A0A0B' }}>
+      <div style={{ width: 32, height: 32, borderRadius: 8, background: '#6B5CFF', animation: 'pulse 1.5s infinite' }} />
+    </div>
+  );
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.email !== ADMIN_EMAIL) return <Navigate to="/" replace />;
+  return children;
 };
 
 export default function App() {
@@ -34,6 +49,14 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+
+        {/* Admin route — outside Layout so it has its own full page */}
+        <Route path="/admin" element={
+          <AdminRoute>
+            <AdminPage />
+          </AdminRoute>
+        } />
+
         <Route path="/" element={
           <ProtectedRoute>
             <SocketProvider>
