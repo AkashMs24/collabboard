@@ -3,6 +3,20 @@ import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../context/authStore';
 
+const S = {
+  page: { minHeight: '100vh', background: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans', sans-serif", padding: '16px' },
+  box: { width: '100%', maxWidth: 420 },
+  logo: { width: 48, height: 48, background: '#0D9488', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontFamily: 'monospace', fontSize: 18, color: '#fff', fontWeight: 700 },
+  title: { color: '#F1F5F9', fontSize: 28, fontWeight: 700, letterSpacing: -0.5, margin: 0, textAlign: 'center' },
+  subtitle: { color: '#94A3B8', fontSize: 15, marginTop: 8, textAlign: 'center' },
+  card: { background: '#1E293B', border: '1px solid #334155', borderRadius: 18, padding: '32px 28px', marginTop: 28 },
+  label: { display: 'block', fontSize: 13, color: '#CBD5E1', fontWeight: 500, marginBottom: 8 },
+  input: { width: '100%', background: '#0F172A', border: '1px solid #334155', borderRadius: 10, padding: '13px 14px', color: '#F1F5F9', fontSize: 15, outline: 'none', boxSizing: 'border-box', transition: 'border-color .15s' },
+  btn: { width: '100%', background: '#0D9488', color: '#fff', border: 'none', borderRadius: 10, padding: '14px 0', fontSize: 16, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", marginTop: 8 },
+  footer: { textAlign: 'center', color: '#64748B', fontSize: 14, marginTop: 24 },
+  link: { color: '#2DD4BF', textDecoration: 'none', fontWeight: 600 },
+};
+
 export default function RegisterPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [loading, setLoading] = useState(false);
@@ -23,63 +37,42 @@ export default function RegisterPage() {
     }
   };
 
-  const field = (label, key, type = 'text', placeholder = '') => (
-    <div style={{ marginBottom: 16 }}>
-      <label style={{ display: 'block', fontSize: 12, color: '#8888A0', marginBottom: 6 }}>{label}</label>
+  const Field = ({ label, name, type = 'text', placeholder }) => (
+    <div style={{ marginBottom: 20 }}>
+      <label style={S.label}>{label}</label>
       <input
-        type={type} required value={form[key]}
-        onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
-        placeholder={placeholder}
-        style={{
-          width: '100%', background: '#18181C', border: '1px solid #ffffff15',
-          borderRadius: 8, padding: '10px 12px', color: '#E8E8EC', fontSize: 14,
-          outline: 'none', boxSizing: 'border-box'
-        }}
+        type={type} required value={form[name]}
+        onChange={e => setForm(p => ({ ...p, [name]: e.target.value }))}
+        placeholder={placeholder} style={S.input}
+        onFocus={e => e.target.style.borderColor = '#0D9488'}
+        onBlur={e => e.target.style.borderColor = '#334155'}
       />
     </div>
   );
 
   return (
-    <div style={{
-      minHeight: '100vh', background: '#0A0A0B', display: 'flex',
-      alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans', sans-serif"
-    }}>
-      <div style={{ width: 380 }}>
-        <div style={{ marginBottom: 32, textAlign: 'center' }}>
-          <div style={{
-            width: 44, height: 44, background: '#6B5CFF', borderRadius: 12,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 16px', fontFamily: 'monospace', fontSize: 16, color: '#fff', fontWeight: 500
-          }}>CB</div>
-          <h1 style={{ color: '#E8E8EC', fontSize: 22, fontWeight: 300, letterSpacing: -0.5, margin: 0 }}>
-            Create your account
-          </h1>
-          <p style={{ color: '#55556A', fontSize: 13, marginTop: 6 }}>Start collaborating in minutes</p>
+    <div style={S.page}>
+      <div style={S.box}>
+        <div style={S.logo}>CB</div>
+        <h1 style={S.title}>Create your account</h1>
+        <p style={S.subtitle}>Start collaborating in minutes</p>
+        <div style={S.card}>
+          <form onSubmit={handleSubmit}>
+            <Field label="Full name" name="name" placeholder="Akash Ms" />
+            <Field label="Email" name="email" type="email" placeholder="you@example.com" />
+            <Field label="Password" name="password" type="password" placeholder="At least 8 characters" />
+            <button type="submit" disabled={loading}
+              style={{ ...S.btn, opacity: loading ? 0.7 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}
+              onMouseEnter={e => { if (!loading) e.target.style.background = '#0F766E'; }}
+              onMouseLeave={e => e.target.style.background = '#0D9488'}
+            >
+              {loading ? 'Creating account...' : 'Create account'}
+            </button>
+          </form>
         </div>
-
-        <form onSubmit={handleSubmit} style={{
-          background: '#111113', border: '1px solid #ffffff10', borderRadius: 16, padding: 28
-        }}>
-          {field('Full name', 'name', 'text', 'Akash Ms')}
-          {field('Email', 'email', 'email', 'you@example.com')}
-          {field('Password', 'password', 'password', 'At least 8 characters')}
-
-          <button
-            type="submit" disabled={loading}
-            style={{
-              width: '100%', background: '#6B5CFF', color: '#fff', border: 'none',
-              borderRadius: 8, padding: '11px 0', fontSize: 14, fontWeight: 500,
-              cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1,
-              fontFamily: "'DM Sans', sans-serif", marginTop: 8
-            }}
-          >
-            {loading ? 'Creating account...' : 'Create account'}
-          </button>
-        </form>
-
-        <p style={{ textAlign: 'center', color: '#55556A', fontSize: 13, marginTop: 20 }}>
+        <p style={S.footer}>
           Already have an account?{' '}
-          <Link to="/login" style={{ color: '#8B7DFF', textDecoration: 'none' }}>Sign in</Link>
+          <Link to="/login" style={S.link}>Sign in</Link>
         </p>
       </div>
     </div>
