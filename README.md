@@ -1,6 +1,6 @@
 <div align="center">
 
-# CollabBoard
+# 📋CollabBoard📋
 
 > Real-time collaborative project management — built for teams, engineered for production.
 
