@@ -1,9 +1,16 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const jwt = require('jsonwebtoken');
 const { authenticate } = require('../middleware/auth');
+const { requireBoardAccess } = require('../middleware/boardAccess');
 const authCtrl = require('../controllers/authController');
 const boardCtrl = require('../controllers/boardController');
 const taskCtrl = require('../controllers/taskController');
+const workspaceCtrl = require('../controllers/workspaceController');
+const timeTravelCtrl = require('../controllers/timeTravelController');
+const riskRadarCtrl = require('../controllers/riskRadarController');
+const churnCtrl = require('../controllers/churnController');
+const { callGroq } = require('../utils/groq');
 const pool = require('../config/db');
 const router = express.Router();
 
@@ -11,38 +18,14 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { er
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Rate limit exceeded' } });
 router.use('/api', apiLimiter);
 
-// ─── GROQ HELPER ─────────────────────────────────────────────────────────────
-const callGroq = async (prompt, maxTokens = 1000) => {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Groq error: ${err}`);
-  }
-  const data = await response.json();
-  return data.choices[0].message.content.trim();
-};
-
 // ─── ADMIN ───────────────────────────────────────────────────────────────────
-const ADMIN_EMAIL = 'manigarakash@gmail.com';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL; // moved out of source — set this in .env / Render env vars
 
-// FIX: JWT token only contains userId — look up email from DB
 const adminOnly = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) return res.status(403).json({ error: 'Forbidden' });
     const token = authHeader.split(' ')[1];
-    const jwt = require('jsonwebtoken');
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const result = await pool.query(
       'SELECT id, name, email, avatar_color FROM users WHERE id = $1',
@@ -92,7 +75,6 @@ router.get('/api/admin/stats', adminOnly, async (req, res, next) => {
 });
 // ─── END ADMIN ────────────────────────────────────────────────────────────────
 
-// Health
 router.get('/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -150,15 +132,21 @@ router.post('/api/workspaces', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Boards
+// Workspace members (invites & roles)
+router.get('/api/workspaces/:workspaceId/members', authenticate, workspaceCtrl.listMembers);
+router.post('/api/workspaces/:workspaceId/members', authenticate, workspaceCtrl.inviteMember);
+router.patch('/api/workspaces/:workspaceId/members/:userId', authenticate, workspaceCtrl.updateMemberRole);
+router.delete('/api/workspaces/:workspaceId/members/:userId', authenticate, workspaceCtrl.removeMember);
+
+// Boards — now behind requireBoardAccess (the security fix)
 router.get('/api/workspaces/:workspaceId/boards', authenticate, boardCtrl.getBoards);
 router.post('/api/workspaces/:workspaceId/boards', authenticate, boardCtrl.createBoard);
-router.get('/api/boards/:boardId', authenticate, boardCtrl.getBoard);
-router.patch('/api/boards/:boardId', authenticate, boardCtrl.updateBoard);
-router.delete('/api/boards/:boardId', authenticate, boardCtrl.deleteBoard);
+router.get('/api/boards/:boardId', authenticate, requireBoardAccess(), boardCtrl.getBoard);
+router.patch('/api/boards/:boardId', authenticate, requireBoardAccess('admin'), boardCtrl.updateBoard);
+router.delete('/api/boards/:boardId', authenticate, requireBoardAccess('admin'), boardCtrl.deleteBoard);
 
 // Activity
-router.get('/api/boards/:boardId/activity', authenticate, async (req, res, next) => {
+router.get('/api/boards/:boardId/activity', authenticate, requireBoardAccess(), async (req, res, next) => {
   try {
     const result = await pool.query(
       `SELECT al.*, u.name, u.avatar_color FROM activity_log al
@@ -170,15 +158,15 @@ router.get('/api/boards/:boardId/activity', authenticate, async (req, res, next)
   } catch (err) { next(err); }
 });
 
-// Tasks
-router.post('/api/boards/:boardId/columns/:columnId/tasks', authenticate, taskCtrl.createTask);
-router.patch('/api/tasks/:taskId', authenticate, taskCtrl.updateTask);
-router.patch('/api/tasks/:taskId/move', authenticate, taskCtrl.moveTask);
-router.delete('/api/tasks/:taskId', authenticate, taskCtrl.deleteTask);
-router.get('/api/tasks/:taskId/comments', authenticate, taskCtrl.getComments);
-router.post('/api/tasks/:taskId/comments', authenticate, taskCtrl.addComment);
+// Tasks — now behind requireBoardAccess
+router.post('/api/boards/:boardId/columns/:columnId/tasks', authenticate, requireBoardAccess(), taskCtrl.createTask);
+router.patch('/api/tasks/:taskId', authenticate, requireBoardAccess(), taskCtrl.updateTask);
+router.patch('/api/tasks/:taskId/move', authenticate, requireBoardAccess(), taskCtrl.moveTask);
+router.delete('/api/tasks/:taskId', authenticate, requireBoardAccess(), taskCtrl.deleteTask);
+router.get('/api/tasks/:taskId/comments', authenticate, requireBoardAccess(), taskCtrl.getComments);
+router.post('/api/tasks/:taskId/comments', authenticate, requireBoardAccess(), taskCtrl.addComment);
 
-// Search tasks across all boards in a workspace
+// Search
 router.get('/api/workspaces/:workspaceId/search', authenticate, async (req, res, next) => {
   try {
     const { q } = req.query;
@@ -201,9 +189,14 @@ router.get('/api/workspaces/:workspaceId/search', authenticate, async (req, res,
   } catch (err) { next(err); }
 });
 
-// ─── AI ROUTES ───────────────────────────────────────────────────────────────
+// ─── UNIQUE FEATURES ─────────────────────────────────────────────────────────
+router.get('/api/boards/:boardId/timeline', authenticate, requireBoardAccess(), timeTravelCtrl.getTimeline);
+router.get('/api/boards/:boardId/replay', authenticate, requireBoardAccess(), timeTravelCtrl.getBoardAtTime);
+router.get('/api/boards/:boardId/risk-radar', authenticate, requireBoardAccess(), riskRadarCtrl.getRiskRadar);
+router.get('/api/boards/:boardId/churn', authenticate, requireBoardAccess(), churnCtrl.getChurnRadar);
+// ─── END UNIQUE FEATURES ─────────────────────────────────────────────────────
 
-// AI: Generate full task breakdown for a board
+// ─── AI ROUTES ───────────────────────────────────────────────────────────────
 router.post('/api/ai/generate-tasks', authenticate, async (req, res, next) => {
   try {
     const { boardName, boardDescription, existingColumns } = req.body;
@@ -230,7 +223,6 @@ Rules:
   } catch (err) { next(err); }
 });
 
-// AI: Write task description with acceptance criteria
 router.post('/api/ai/task-description', authenticate, async (req, res, next) => {
   try {
     const { taskTitle, boardName } = req.body;
@@ -253,7 +245,6 @@ Keep it under 80 words total. Be specific and technical.`;
   } catch (err) { next(err); }
 });
 
-// AI: Daily standup report from board activity
 router.post('/api/ai/standup', authenticate, async (req, res, next) => {
   try {
     const { boardId } = req.body;
@@ -289,7 +280,6 @@ router.post('/api/ai/standup', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// AI: Suggest priority for a task based on its title
 router.post('/api/ai/suggest-priority', authenticate, async (req, res, next) => {
   try {
     const { taskTitle } = req.body;
@@ -305,7 +295,6 @@ Base it on urgency and impact implied by the title. No explanation.`;
     res.json({ priority });
   } catch (err) { next(err); }
 });
-
 // ─── END AI ROUTES ────────────────────────────────────────────────────────────
 
 module.exports = router;
