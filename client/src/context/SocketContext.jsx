@@ -12,7 +12,9 @@ export const SocketProvider = ({ children }) => {
     if (!user) return;
     const token = localStorage.getItem('accessToken');
 
-    socketRef.current = io(import.meta.env.VITE_API_URL || 'http://localhost:4000', {
+    // With no explicit URL, socket.io connects to the current origin —
+    // the Vite dev proxy forwards /socket.io to the backend.
+    socketRef.current = io(import.meta.env.VITE_API_URL || undefined, {
       auth: { token },
       transports: ['websocket'],
     });

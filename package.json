@@ -9,5 +9,21 @@
     "dev:client": "cd client && npm run dev",
     "migrate": "cd server && npm run migrate",
     "build:client": "cd client && npm run build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.0.3",
+    "axios": "^1.18.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.11.0",
+    "pg": "^8.22.0",
+    "react": "^19.2.7",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
+    "vite": "^8.1.3"
   }
 }

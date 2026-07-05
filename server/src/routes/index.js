@@ -11,23 +11,32 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { er
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Rate limit exceeded' } });
 router.use('/api', apiLimiter);
 
-// ─── GROQ HELPER ─────────────────────────────────────────────────────────────
+// ─── LLM HELPER ──────────────────────────────────────────────────────────────
+// Uses Vercel AI Gateway (OpenAI-compatible) when AI_GATEWAY_API_KEY is set,
+// otherwise falls back to calling the Groq API directly with GROQ_API_KEY.
 const callGroq = async (prompt, maxTokens = 1000) => {
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const useGateway = !!process.env.AI_GATEWAY_API_KEY;
+  const url = useGateway
+    ? 'https://ai-gateway.vercel.sh/v1/chat/completions'
+    : 'https://api.groq.com/openai/v1/chat/completions';
+  const apiKey = useGateway ? process.env.AI_GATEWAY_API_KEY : process.env.GROQ_API_KEY;
+  const model = useGateway ? 'groq/llama-3.1-8b-instant' : 'llama-3.1-8b-instant';
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'llama-3.1-8b-instant',
+      model,
       max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`Groq error: ${err}`);
+    throw new Error(`LLM error: ${err}`);
   }
   const data = await response.json();
   return data.choices[0].message.content.trim();

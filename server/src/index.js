@@ -15,6 +15,9 @@ const server = http.createServer(app);
 
 const allowedOrigin = (origin, callback) => {
   if (!origin) return callback(null, true);
+  // In development everything is proxied through the Vite dev server,
+  // so allow all origins outside of production.
+  if (process.env.NODE_ENV !== 'production') return callback(null, true);
   if (origin.endsWith('.vercel.app') || origin === process.env.CLIENT_URL) {
     return callback(null, true);
   }

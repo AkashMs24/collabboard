@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+// Default to relative URLs so requests go through the Vite dev proxy
+// (or same-origin in production when the API is served alongside the client).
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:4000',
+  baseURL: API_BASE,
   withCredentials: true,
 });
 
@@ -20,7 +24,7 @@ api.interceptors.response.use(
       try {
         const refresh = localStorage.getItem('refreshToken');
         const { data } = await axios.post(
-          `${import.meta.env.VITE_API_URL || 'http://localhost:4000'}/api/auth/refresh`,
+          `${API_BASE}/api/auth/refresh`,
           { refreshToken: refresh }
         );
         localStorage.setItem('accessToken', data.accessToken);
