@@ -352,6 +352,7 @@ export default function BoardPage() {
 
   const [board, setBoard] = useState(null);
   const [columns, setColumns] = useState([]);
+  const [showInsights, setShowInsights] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [cursors, setCursors] = useState({});
   const [loading, setLoading] = useState(true);
