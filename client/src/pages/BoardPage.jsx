@@ -586,6 +586,12 @@ export default function BoardPage() {
             📋 Standup
           </button>
 
+          {/* ← NEW: Insights button */}
+          <button onClick={() => setShowInsights(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px', borderRadius: 8, border: '1px solid #8B5CF640', background: '#8B5CF615', color: '#A78BFA', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 500, whiteSpace: 'nowrap' }}>
+            📊 Insights
+          </button>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#2DD4BF', background: '#0D948820', padding: '4px 10px', borderRadius: 20, border: '1px solid #0D948840', fontFamily: 'monospace' }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#2DD4BF', animation: 'pulse 2s infinite' }} /> live
           </div>
