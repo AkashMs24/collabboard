@@ -101,11 +101,27 @@ const migrate = async () => {
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
 
+      -- ── Added: churn / bounce intelligence (additive, safe on existing DBs) ──
+      ALTER TABLE tasks ADD COLUMN IF NOT EXISTS bounce_count INTEGER DEFAULT 0;
+
+      CREATE TABLE IF NOT EXISTS task_bounces (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
+        board_id UUID REFERENCES boards(id) ON DELETE CASCADE,
+        from_column_id UUID REFERENCES columns(id),
+        to_column_id UUID REFERENCES columns(id),
+        user_id UUID REFERENCES users(id),
+        ai_retro_note TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE INDEX IF NOT EXISTS idx_tasks_column ON tasks(column_id);
       CREATE INDEX IF NOT EXISTS idx_tasks_board ON tasks(board_id);
       CREATE INDEX IF NOT EXISTS idx_activity_board ON activity_log(board_id);
       CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+      CREATE INDEX IF NOT EXISTS idx_bounces_task ON task_bounces(task_id);
+      CREATE INDEX IF NOT EXISTS idx_bounces_board ON task_bounces(board_id);
     `);
 
     await client.query('COMMIT');
