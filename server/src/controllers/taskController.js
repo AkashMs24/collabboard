@@ -1,4 +1,7 @@
 const pool = require('../config/db');
+const { callGroq } = require('../utils/groq');
+
+const BOUNCE_THRESHOLD = 2;
 
 const createTask = async (req, res, next) => {
   try {
@@ -7,11 +10,8 @@ const createTask = async (req, res, next) => {
 
     if (!title) return res.status(400).json({ error: 'Task title is required' });
 
-    // Idempotency: return existing task if key already used
     if (idempotency_key) {
-      const existing = await pool.query(
-        'SELECT * FROM tasks WHERE idempotency_key = $1', [idempotency_key]
-      );
+      const existing = await pool.query('SELECT * FROM tasks WHERE idempotency_key = $1', [idempotency_key]);
       if (existing.rows[0]) return res.status(200).json({ task: existing.rows[0], cached: true });
     }
 
@@ -31,7 +31,7 @@ const createTask = async (req, res, next) => {
     await pool.query(
       `INSERT INTO activity_log (board_id, user_id, action, entity_type, entity_id, meta)
        VALUES ($1, $2, 'created task', 'task', $3, $4)`,
-      [boardId, req.user.id, result.rows[0].id, JSON.stringify({ title })]
+      [boardId, req.user.id, result.rows[0].id, JSON.stringify({ title: title.trim(), column_id: columnId })]
     );
 
     res.status(201).json({ task: result.rows[0] });
@@ -58,8 +58,32 @@ const updateTask = async (req, res, next) => {
     );
 
     if (!result.rows[0]) return res.status(404).json({ error: 'Task not found' });
+
+    if (title) {
+      await pool.query(
+        `INSERT INTO activity_log (board_id, user_id, action, entity_type, entity_id, meta)
+         VALUES ($1, $2, 'updated task', 'task', $3, $4)`,
+        [result.rows[0].board_id, req.user.id, taskId, JSON.stringify({ title })]
+      );
+    }
+
     res.json({ task: result.rows[0] });
   } catch (err) { next(err); }
+};
+
+const generateBounceRetro = async (taskId, boardId, title, bounceCount) => {
+  if (!process.env.GROQ_API_KEY) return;
+  try {
+    const prompt = `A task titled "${title}" has bounced backward between Kanban columns ${bounceCount} times — meaning it was marked done/reviewed and then sent back repeatedly. In 2 sentences: name the most likely root cause category (unclear requirements, insufficient testing, scope creep, or dependency blocked) and one concrete process fix. No preamble.`;
+    const note = await callGroq(prompt, 120);
+    await pool.query(
+      `UPDATE task_bounces SET ai_retro_note = $1
+       WHERE id = (SELECT id FROM task_bounces WHERE task_id = $2 ORDER BY created_at DESC LIMIT 1)`,
+      [note, taskId]
+    );
+  } catch {
+    // best-effort — never let AI failure affect the move operation
+  }
 };
 
 const moveTask = async (req, res, next) => {
@@ -75,7 +99,8 @@ const moveTask = async (req, res, next) => {
       const task = taskResult.rows[0];
       if (!task) throw Object.assign(new Error('Task not found'), { status: 404 });
 
-      // Shift positions in destination column
+      const fromColumnId = task.column_id;
+
       await client.query(
         'UPDATE tasks SET position = position + 1 WHERE column_id = $1 AND position >= $2 AND id != $3',
         [column_id, position, taskId]
@@ -93,8 +118,40 @@ const moveTask = async (req, res, next) => {
         [board_id, req.user.id, taskId, JSON.stringify({ column_id })]
       );
 
+      let bounced = false;
+      let newBounceCount = task.bounce_count || 0;
+
+      if (fromColumnId && fromColumnId !== column_id) {
+        const positions = await client.query(
+          'SELECT id, position FROM columns WHERE id = ANY($1::uuid[])',
+          [[fromColumnId, column_id]]
+        );
+        const posMap = Object.fromEntries(positions.rows.map((c) => [c.id, c.position]));
+
+        if (posMap[column_id] < posMap[fromColumnId]) {
+          bounced = true;
+          newBounceCount += 1;
+
+          await client.query('UPDATE tasks SET bounce_count = $1 WHERE id = $2', [newBounceCount, taskId]);
+          await client.query(
+            `INSERT INTO task_bounces (task_id, board_id, from_column_id, to_column_id, user_id)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [taskId, board_id, fromColumnId, column_id, req.user.id]
+          );
+          await client.query(
+            `INSERT INTO activity_log (board_id, user_id, action, entity_type, entity_id, meta)
+             VALUES ($1, $2, 'task bounced', 'task', $3, $4)`,
+            [board_id, req.user.id, taskId, JSON.stringify({ from: fromColumnId, to: column_id, bounce_count: newBounceCount })]
+          );
+        }
+      }
+
       await client.query('COMMIT');
-      res.json({ task: result.rows[0] });
+      res.json({ task: { ...result.rows[0], bounce_count: newBounceCount }, bounced, bounce_count: newBounceCount });
+
+      if (bounced && newBounceCount >= BOUNCE_THRESHOLD) {
+        generateBounceRetro(taskId, board_id, result.rows[0].title, newBounceCount);
+      }
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;
@@ -107,7 +164,15 @@ const moveTask = async (req, res, next) => {
 const deleteTask = async (req, res, next) => {
   try {
     const { taskId } = req.params;
+    const task = await pool.query('SELECT board_id, title FROM tasks WHERE id = $1', [taskId]);
+    if (!task.rows[0]) return res.status(404).json({ error: 'Task not found' });
+
     await pool.query('DELETE FROM tasks WHERE id = $1', [taskId]);
+    await pool.query(
+      `INSERT INTO activity_log (board_id, user_id, action, entity_type, entity_id, meta)
+       VALUES ($1, $2, 'deleted task', 'task', $3, $4)`,
+      [task.rows[0].board_id, req.user.id, taskId, JSON.stringify({ title: task.rows[0].title })]
+    );
     res.json({ message: 'Task deleted' });
   } catch (err) { next(err); }
 };
