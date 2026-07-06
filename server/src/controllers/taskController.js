@@ -43,6 +43,9 @@ const updateTask = async (req, res, next) => {
     const { taskId } = req.params;
     const { title, description, priority, tag, due_date, assignee_id, is_completed } = req.body;
 
+    const prev = await pool.query('SELECT board_id, is_completed FROM tasks WHERE id = $1', [taskId]);
+    if (!prev.rows[0]) return res.status(404).json({ error: 'Task not found' });
+
     const result = await pool.query(
       `UPDATE tasks SET
          title = COALESCE($1, title),
@@ -57,13 +60,19 @@ const updateTask = async (req, res, next) => {
       [title, description, priority, tag, due_date, assignee_id, is_completed, taskId]
     );
 
-    if (!result.rows[0]) return res.status(404).json({ error: 'Task not found' });
-
     if (title) {
       await pool.query(
         `INSERT INTO activity_log (board_id, user_id, action, entity_type, entity_id, meta)
          VALUES ($1, $2, 'updated task', 'task', $3, $4)`,
         [result.rows[0].board_id, req.user.id, taskId, JSON.stringify({ title })]
+      );
+    }
+
+    if (is_completed === true && prev.rows[0].is_completed !== true) {
+      await pool.query(
+        `INSERT INTO activity_log (board_id, user_id, action, entity_type, entity_id, meta)
+         VALUES ($1, $2, 'completed task', 'task', $3, $4)`,
+        [result.rows[0].board_id, req.user.id, taskId, JSON.stringify({ title: result.rows[0].title })]
       );
     }
 
