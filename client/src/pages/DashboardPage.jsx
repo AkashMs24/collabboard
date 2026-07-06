@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../lib/api';
 import { useAuthStore } from '../context/authStore';
+import WorkspacePulse from '../components/WorkspacePulse';
 
 const COLORS = ['#0D9488', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6'];
 
@@ -54,7 +55,7 @@ export default function DashboardPage() {
     <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px', background: '#0F172A', color: '#F1F5F9' }}>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
 
-        <div style={{ marginBottom: 32 }}>
+        <div style={{ marginBottom: 28, animation: 'fadeInUp .4s ease-out' }}>
           <h1 style={{ fontSize: 'clamp(22px, 5vw, 30px)', fontWeight: 700, letterSpacing: -0.5, margin: 0, color: '#F1F5F9' }}>
             Good morning, {user?.name?.split(' ')[0]} 👋
           </h1>
@@ -62,6 +63,8 @@ export default function DashboardPage() {
             {activeWs ? activeWs.name : 'Select a workspace to get started'}
           </p>
         </div>
+
+        {activeWs && <WorkspacePulse workspaceId={activeWs.id} />}
 
         {workspaces.length === 0 && (
           <div style={{ textAlign: 'center', padding: '60px 20px', background: '#1E293B', borderRadius: 16, border: '1px dashed #334155' }}>
@@ -80,10 +83,11 @@ export default function DashboardPage() {
               <button onClick={() => setShowNewBoard(true)} style={{
                 display: 'flex', alignItems: 'center', gap: 6, background: '#0D9488',
                 color: '#fff', border: 'none', borderRadius: 10, padding: '10px 18px',
-                fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif"
+                fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                transition: 'background .2s, box-shadow .2s',
               }}
-                onMouseEnter={e => e.target.style.background = '#0F766E'}
-                onMouseLeave={e => e.target.style.background = '#0D9488'}
+                onMouseEnter={e => { e.target.style.background = '#0F766E'; e.target.style.boxShadow = '0 4px 16px #0D948850'; }}
+                onMouseLeave={e => { e.target.style.background = '#0D9488'; e.target.style.boxShadow = 'none'; }}
               >+ New board</button>
             </div>
 
@@ -117,11 +121,24 @@ export default function DashboardPage() {
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: 14 }}>
-              {boards.map(board => (
+              {boards.map((board, i) => (
                 <div key={board.id} onClick={() => navigate(`/board/${board.id}`)}
-                  style={{ background: '#1E293B', border: '1px solid #334155', borderRadius: 14, padding: 20, cursor: 'pointer', transition: 'all .2s', position: 'relative', overflow: 'hidden' }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = board.color; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#334155'; e.currentTarget.style.transform = 'none'; }}
+                  style={{
+                    background: '#1E293B', border: '1px solid #334155', borderRadius: 14, padding: 20,
+                    cursor: 'pointer', transition: 'transform .2s, box-shadow .2s, border-color .2s',
+                    position: 'relative', overflow: 'hidden',
+                    animation: `fadeInUp .4s ease-out ${i * 0.05}s both`,
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = board.color;
+                    e.currentTarget.style.transform = 'translateY(-3px)';
+                    e.currentTarget.style.boxShadow = `0 12px 28px ${board.color}30`;
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = '#334155';
+                    e.currentTarget.style.transform = 'none';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
                 >
                   <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: board.color }} />
                   <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6, marginTop: 4, color: '#F1F5F9' }}>{board.name}</div>
@@ -139,6 +156,10 @@ export default function DashboardPage() {
           </>
         )}
       </div>
+
+      <style>{`
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
     </div>
   );
 }
