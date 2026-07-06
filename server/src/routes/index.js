@@ -11,8 +11,10 @@ const timeTravelCtrl = require('../controllers/timeTravelController');
 const riskRadarCtrl = require('../controllers/riskRadarController');
 const churnCtrl = require('../controllers/churnController');
 const { callGroq } = require('../utils/groq');
+const pulseCtrl = require('../controllers/pulseController');
 const pool = require('../config/db');
 const router = express.Router();
+
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: 'Too many attempts' } });
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Rate limit exceeded' } });
@@ -41,6 +43,7 @@ const adminOnly = async (req, res, next) => {
   }
 };
 
+router.get('/api/workspaces/:workspaceId/pulse', authenticate, pulseCtrl.getWorkspacePulse);
 router.get('/api/admin/users', adminOnly, async (req, res, next) => {
   try {
     const result = await pool.query(`
