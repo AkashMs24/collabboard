@@ -4,7 +4,7 @@ import { useAuthStore } from '../../context/authStore';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
 
-const ADMIN_EMAIL = 'manigarakash@gmail.com';
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL;
 
 function SidebarContent({ user, workspaces, showNewWs, wsName, setWsName, setShowNewWs, createWorkspace, handleLogout, setSidebarOpen, initials }) {
   return (
