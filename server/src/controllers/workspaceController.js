@@ -5,7 +5,6 @@ const inviteMember = async (req, res, next) => {
     const { workspaceId } = req.params;
     const { email, role } = req.body;
     if (!email) return res.status(400).json({ error: 'Email required' });
-
     const requester = await pool.query(
       'SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2',
       [workspaceId, req.user.id]
@@ -13,23 +12,19 @@ const inviteMember = async (req, res, next) => {
     if (requester.rows[0]?.role !== 'admin') {
       return res.status(403).json({ error: 'Only workspace admins can invite members' });
     }
-
     const userRes = await pool.query('SELECT id, name, email FROM users WHERE email = $1', [email.toLowerCase()]);
     if (!userRes.rows[0]) {
       return res.status(404).json({ error: 'No user with that email. They need to register first.' });
     }
-
     const existing = await pool.query(
       'SELECT 1 FROM workspace_members WHERE workspace_id = $1 AND user_id = $2',
       [workspaceId, userRes.rows[0].id]
     );
     if (existing.rows[0]) return res.status(409).json({ error: 'User is already a member' });
-
     await pool.query(
       'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)',
       [workspaceId, userRes.rows[0].id, role === 'admin' ? 'admin' : 'member']
     );
-
     res.status(201).json({ message: `${userRes.rows[0].name} added to workspace`, member: userRes.rows[0] });
   } catch (err) { next(err); }
 };
@@ -52,13 +47,11 @@ const updateMemberRole = async (req, res, next) => {
     const { workspaceId, userId } = req.params;
     const { role } = req.body;
     if (!['admin', 'member'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
-
     const requester = await pool.query(
       'SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2',
       [workspaceId, req.user.id]
     );
     if (requester.rows[0]?.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-
     await pool.query(
       'UPDATE workspace_members SET role = $1 WHERE workspace_id = $2 AND user_id = $3',
       [role, workspaceId, userId]
@@ -82,4 +75,17 @@ const removeMember = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { inviteMember, listMembers, updateMemberRole, removeMember };
+const deleteWorkspace = async (req, res, next) => {
+  try {
+    const { workspaceId } = req.params;
+    const ws = await pool.query('SELECT owner_id, name FROM workspaces WHERE id = $1', [workspaceId]);
+    if (!ws.rows[0]) return res.status(404).json({ error: 'Workspace not found' });
+    if (ws.rows[0].owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the workspace owner can delete it' });
+    }
+    await pool.query('DELETE FROM workspaces WHERE id = $1', [workspaceId]);
+    res.json({ message: `"${ws.rows[0].name}" deleted` });
+  } catch (err) { next(err); }
+};
+
+module.exports = { inviteMember, listMembers, updateMemberRole, removeMember, deleteWorkspace };
