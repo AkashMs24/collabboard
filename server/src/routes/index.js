@@ -13,6 +13,10 @@ const churnCtrl = require('../controllers/churnController');
 const { callGroq } = require('../utils/groq');
 const pulseCtrl = require('../controllers/pulseController');
 const pool = require('../config/db');
+const validate = require('../middleware/validate');
+const { aiLimiter } = require('../middleware/rateLimiters');
+const { registerSchema, loginSchema } = require('../validators/authValidators');
+const { createTaskSchema, moveTaskSchema, updateTaskSchema } = require('../validators/taskValidators');
 const router = express.Router();
 
 
@@ -88,8 +92,8 @@ router.get('/health', async (req, res) => {
 });
 
 // Auth
-router.post('/api/auth/register', authLimiter, authCtrl.register);
-router.post('/api/auth/login', authLimiter, authCtrl.login);
+router.post('/api/auth/register', authLimiter, validate(registerSchema), authCtrl.register);
+router.post('/api/auth/login', authLimiter, validate(loginSchema), authCtrl.login);
 router.post('/api/auth/refresh', authCtrl.refresh);
 router.post('/api/auth/logout', authenticate, authCtrl.logout);
 router.get('/api/auth/me', authenticate, authCtrl.me);
@@ -162,9 +166,9 @@ router.get('/api/boards/:boardId/activity', authenticate, requireBoardAccess(), 
 });
 
 // Tasks — now behind requireBoardAccess
-router.post('/api/boards/:boardId/columns/:columnId/tasks', authenticate, requireBoardAccess(), taskCtrl.createTask);
-router.patch('/api/tasks/:taskId', authenticate, requireBoardAccess(), taskCtrl.updateTask);
-router.patch('/api/tasks/:taskId/move', authenticate, requireBoardAccess(), taskCtrl.moveTask);
+router.post('/api/boards/:boardId/columns/:columnId/tasks', authenticate, requireBoardAccess(), validate(createTaskSchema), taskCtrl.createTask);
+router.patch('/api/tasks/:taskId', authenticate, requireBoardAccess(), validate(updateTaskSchema), taskCtrl.updateTask);
+router.patch('/api/tasks/:taskId/move', authenticate, requireBoardAccess(), validate(moveTaskSchema), taskCtrl.moveTask);
 router.delete('/api/tasks/:taskId', authenticate, requireBoardAccess(), taskCtrl.deleteTask);
 router.get('/api/tasks/:taskId/comments', authenticate, requireBoardAccess(), taskCtrl.getComments);
 router.post('/api/tasks/:taskId/comments', authenticate, requireBoardAccess(), taskCtrl.addComment);
@@ -200,7 +204,7 @@ router.get('/api/boards/:boardId/churn', authenticate, requireBoardAccess(), chu
 // ─── END UNIQUE FEATURES ─────────────────────────────────────────────────────
 
 // ─── AI ROUTES ───────────────────────────────────────────────────────────────
-router.post('/api/ai/generate-tasks', authenticate, async (req, res, next) => {
+router.post('/api/ai/generate-tasks', authenticate, aiLimiter, async (req, res, next) => {
   try {
     const { boardName, boardDescription, existingColumns } = req.body;
     if (!boardName) return res.status(400).json({ error: 'Board name required' });
@@ -226,7 +230,7 @@ Rules:
   } catch (err) { next(err); }
 });
 
-router.post('/api/ai/task-description', authenticate, async (req, res, next) => {
+router.post('/api/ai/task-description', authenticate, aiLimiter, async (req, res, next) => {
   try {
     const { taskTitle, boardName } = req.body;
     if (!taskTitle) return res.status(400).json({ error: 'taskTitle required' });
@@ -248,7 +252,7 @@ Keep it under 80 words total. Be specific and technical.`;
   } catch (err) { next(err); }
 });
 
-router.post('/api/ai/standup', authenticate, async (req, res, next) => {
+router.post('/api/ai/standup', authenticate, aiLimiter, async (req, res, next) => {
   try {
     const { boardId } = req.body;
     if (!boardId) return res.status(400).json({ error: 'boardId required' });
@@ -283,7 +287,7 @@ router.post('/api/ai/standup', authenticate, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/api/ai/suggest-priority', authenticate, async (req, res, next) => {
+router.post('/api/ai/suggest-priority', authenticate, aiLimiter, async (req, res, next) => {
   try {
     const { taskTitle } = req.body;
     if (!taskTitle) return res.status(400).json({ error: 'taskTitle required' });
