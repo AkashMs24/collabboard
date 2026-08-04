@@ -5,8 +5,6 @@ import api from '../lib/api';
 import { useAuthStore } from '../context/authStore';
 import WorkspacePulse from '../components/WorkspacePulse';
 
-const COLORS = ['#14B8A6', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
-
 export default function DashboardPage() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
@@ -16,7 +14,7 @@ export default function DashboardPage() {
   const [boards, setBoards] = useState([]);
   const [activeWs, setActiveWs] = useState(null);
   const [showNewBoard, setShowNewBoard] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', color: '#14B8A6' });
+  const [form, setForm] = useState({ name: '', description: '' });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -37,10 +35,10 @@ export default function DashboardPage() {
     if (!form.name.trim() || !activeWs) return;
     setLoading(true);
     try {
-      const { data } = await api.post(`/api/workspaces/${activeWs.id}/boards`, form);
+      const { data } = await api.post(`/api/workspaces/${activeWs.id}/boards`, { ...form, color: '#5865F2' });
       setBoards(p => [data.board, ...p]);
       setShowNewBoard(false);
-      setForm({ name: '', description: '', color: '#14B8A6' });
+      setForm({ name: '', description: '' });
       toast.success('Board created');
       navigate(`/board/${data.board.id}`);
     } catch (err) {
@@ -51,29 +49,25 @@ export default function DashboardPage() {
   };
 
   const inputStyle = {
-    width: '100%', background: '#0D0F16', border: '1px solid #23252F', borderRadius: 10,
-    padding: '12px 14px', color: '#F1F2F6', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 12,
+    width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6,
+    padding: '9px 11px', color: 'var(--text-primary)', fontSize: 13.5, outline: 'none', boxSizing: 'border-box', marginBottom: 10,
   };
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <div style={{
-      flex: 1, overflowY: 'auto', padding: '32px 20px',
-      background: 'radial-gradient(1200px 600px at 20% -10%, #14B8A60D, transparent), #0D0F16',
-      color: '#F1F2F6',
-    }}>
-      <div style={{ maxWidth: 1040, margin: '0 auto' }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: '28px 24px', background: 'var(--bg)', color: 'var(--text-primary)' }}>
+      <div style={{ maxWidth: 1000, margin: '0 auto' }}>
 
-        <div style={{ marginBottom: 32, animation: 'fadeInUp .4s ease-out' }}>
-          <div style={{ fontSize: 11, letterSpacing: 2, textTransform: 'uppercase', color: '#454956', fontFamily: 'monospace', marginBottom: 8 }}>
+        <div style={{ marginBottom: 28, animation: 'fadeInUp .3s ease-out' }}>
+          <div style={{ fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--text-tertiary)', fontFamily: "'IBM Plex Mono', monospace", marginBottom: 6 }}>
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </div>
-          <h1 style={{ fontSize: 'clamp(24px, 5vw, 34px)', fontWeight: 700, letterSpacing: -0.8, margin: 0, color: '#F1F2F6' }}>
+          <h1 style={{ fontSize: 24, fontWeight: 600, letterSpacing: -0.3, margin: 0, color: 'var(--text-primary)' }}>
             {greeting}, {user?.name?.split(' ')[0]}
           </h1>
-          <p style={{ color: '#5C6270', fontSize: 15, marginTop: 8 }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, marginTop: 6 }}>
             {activeWs ? activeWs.name : 'Select a workspace to get started'}
           </p>
         </div>
@@ -81,96 +75,64 @@ export default function DashboardPage() {
         {activeWs && <WorkspacePulse workspaceId={activeWs.id} />}
 
         {workspaces.length === 0 && (
-          <EmptyState
-            icon="⊞"
-            title="No workspaces yet"
-            subtitle="Create your first workspace from the sidebar to start organizing boards."
-          />
+          <EmptyState title="No workspaces yet" subtitle="Create your first workspace from the sidebar to start organizing boards." />
         )}
 
         {activeWs && (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '36px 0 16px', flexWrap: 'wrap', gap: 10 }}>
-              <div style={{ fontSize: 12, color: '#5C6270', fontFamily: 'monospace', letterSpacing: '1.5px', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '32px 0 14px', flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: "'IBM Plex Mono', monospace", letterSpacing: 0.6, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8 }}>
                 Boards
-                <span style={{ background: '#181B26', border: '1px solid #23252F', borderRadius: 20, padding: '1px 9px', fontSize: 11, color: '#8B92A5' }}>{boards.length}</span>
+                <span style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 7px', fontSize: 11, color: 'var(--text-secondary)' }}>{boards.length}</span>
               </div>
               <button onClick={() => setShowNewBoard(true)} style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                background: 'linear-gradient(135deg, #14B8A6, #0D9488)',
-                color: '#fff', border: 'none', borderRadius: 10, padding: '10px 18px',
-                fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
-                boxShadow: '0 4px 14px #0D948840', transition: 'transform .15s, box-shadow .15s',
+                background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px',
+                fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'Inter, sans-serif', transition: 'background .12s',
               }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 8px 22px #0D948860'; }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 14px #0D948840'; }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'var(--accent)'}
               >+ New board</button>
             </div>
 
             {showNewBoard && (
               <form onSubmit={createBoard} style={{
-                background: '#14161F', border: '1px solid #23252F', borderRadius: 14, padding: '20px', marginBottom: 20,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.25)', animation: 'fadeInUp .2s ease-out',
+                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px', marginBottom: 18,
               }}>
                 <input autoFocus value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
                   placeholder="Board name" required style={inputStyle}
-                  onFocus={e => e.target.style.borderColor = '#14B8A6'}
-                  onBlur={e => e.target.style.borderColor = '#23252F'}
+                  onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
                 />
                 <input value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
-                  placeholder="Description (optional)" style={inputStyle}
-                  onFocus={e => e.target.style.borderColor = '#14B8A6'}
-                  onBlur={e => e.target.style.borderColor = '#23252F'}
+                  placeholder="Description (optional)" style={{ ...inputStyle, marginBottom: 14 }}
+                  onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
                 />
-                <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-                  {COLORS.map(c => (
-                    <div key={c} onClick={() => setForm(p => ({ ...p, color: c }))}
-                      style={{
-                        width: 26, height: 26, borderRadius: '50%', background: c, cursor: 'pointer',
-                        border: form.color === c ? '3px solid #F1F2F6' : '2px solid transparent',
-                        boxShadow: form.color === c ? `0 0 0 2px #0D0F16, 0 0 0 3px ${c}` : 'none',
-                        transition: 'all .15s',
-                      }} />
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  <button type="submit" disabled={loading} style={{ background: '#14B8A6', color: '#0D0F16', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="submit" disabled={loading} style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                     {loading ? 'Creating…' : 'Create board'}
                   </button>
-                  <button type="button" onClick={() => setShowNewBoard(false)} style={{ background: 'transparent', color: '#8B92A5', border: '1px solid #23252F', borderRadius: 10, padding: '10px 20px', fontSize: 14, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif" }}>
+                  <button type="button" onClick={() => setShowNewBoard(false)} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 16px', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                     Cancel
                   </button>
                 </div>
               </form>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 270px), 1fr))', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))', gap: 12 }}>
               {boards.map((board, i) => (
                 <div key={board.id} onClick={() => navigate(`/board/${board.id}`)}
                   style={{
-                    background: 'linear-gradient(160deg, #14161F, #101219)',
-                    border: '1px solid #23252F', borderRadius: 16, padding: 22,
-                    cursor: 'pointer', transition: 'transform .18s, box-shadow .18s, border-color .18s',
-                    position: 'relative', overflow: 'hidden',
-                    animation: `fadeInUp .4s ease-out ${i * 0.05}s both`,
+                    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 16,
+                    cursor: 'pointer', transition: 'border-color .12s, background .12s',
+                    animation: `fadeInUp .3s ease-out ${i * 0.03}s both`,
                   }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.borderColor = board.color;
-                    e.currentTarget.style.transform = 'translateY(-4px)';
-                    e.currentTarget.style.boxShadow = `0 16px 36px ${board.color}25, 0 0 0 1px ${board.color}40`;
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.borderColor = '#23252F';
-                    e.currentTarget.style.transform = 'none';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-hover)'; e.currentTarget.style.background = 'var(--surface-raised)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--surface)'; }}
                 >
-                  <div style={{ position: 'absolute', top: -30, right: -30, width: 100, height: 100, borderRadius: '50%', background: `${board.color}18`, filter: 'blur(20px)' }} />
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: `${board.color}20`, border: `1px solid ${board.color}50`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, fontSize: 15, color: board.color }}>▤</div>
-                  <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6, color: '#F1F2F6' }}>{board.name}</div>
-                  {board.description && <div style={{ fontSize: 13, color: '#5C6270', marginBottom: 14, lineHeight: 1.5 }}>{board.description}</div>}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#454956', fontFamily: 'monospace' }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: board.color }} />
+                  <div style={{ fontSize: 14.5, fontWeight: 500, marginBottom: 5, color: 'var(--text-primary)' }}>{board.name}</div>
+                  {board.description && <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>{board.description}</div>}
+                  <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', fontFamily: "'IBM Plex Mono', monospace" }}>
                     {board.open_tasks} open {board.open_tasks === 1 ? 'task' : 'tasks'}
                   </div>
                 </div>
@@ -179,7 +141,6 @@ export default function DashboardPage() {
 
             {boards.length === 0 && !showNewBoard && (
               <EmptyState
-                icon="▤"
                 title="No boards yet"
                 subtitle="Create your first board, or try the AI Task Generator to auto-populate one."
                 action={{ label: '+ New board', onClick: () => setShowNewBoard(true) }}
@@ -188,35 +149,22 @@ export default function DashboardPage() {
           </>
         )}
       </div>
-
-      <style>{`
-        @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-      `}</style>
     </div>
   );
 }
 
-function EmptyState({ icon, title, subtitle, action }) {
+function EmptyState({ title, subtitle, action }) {
   return (
     <div style={{
-      textAlign: 'center', padding: '64px 20px',
-      background: 'linear-gradient(160deg, #14161F, #101219)',
-      borderRadius: 18, border: '1px dashed #2A2D3A',
-      animation: 'fadeInUp .4s ease-out',
+      textAlign: 'center', padding: '56px 20px', background: 'var(--surface)',
+      borderRadius: 10, border: '1px solid var(--border)', animation: 'fadeInUp .3s ease-out',
     }}>
-      <div style={{
-        width: 56, height: 56, borderRadius: 16, margin: '0 auto 16px',
-        background: 'linear-gradient(135deg, #14B8A620, #0D948810)',
-        border: '1px solid #14B8A640', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 24, color: '#2DD4BF',
-      }}>{icon}</div>
-      <p style={{ color: '#F1F2F6', fontSize: 16, margin: 0, fontWeight: 600 }}>{title}</p>
-      <p style={{ color: '#5C6270', fontSize: 14, marginTop: 8, maxWidth: 340, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>{subtitle}</p>
+      <p style={{ color: 'var(--text-primary)', fontSize: 14.5, margin: 0, fontWeight: 500 }}>{title}</p>
+      <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 6, maxWidth: 320, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>{subtitle}</p>
       {action && (
         <button onClick={action.onClick} style={{
-          marginTop: 20, background: 'linear-gradient(135deg, #14B8A6, #0D9488)', color: '#fff',
-          border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 14, fontWeight: 600,
-          cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+          marginTop: 16, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6,
+          padding: '8px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'Inter, sans-serif',
         }}>{action.label}</button>
       )}
     </div>
