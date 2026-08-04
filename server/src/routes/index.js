@@ -144,6 +144,7 @@ router.get('/api/workspaces/:workspaceId/members', authenticate, workspaceCtrl.l
 router.post('/api/workspaces/:workspaceId/members', authenticate, workspaceCtrl.inviteMember);
 router.patch('/api/workspaces/:workspaceId/members/:userId', authenticate, workspaceCtrl.updateMemberRole);
 router.delete('/api/workspaces/:workspaceId/members/:userId', authenticate, workspaceCtrl.removeMember);
+router.delete('/api/workspaces/:workspaceId', authenticate, workspaceCtrl.deleteWorkspace);
 
 // Boards — now behind requireBoardAccess (the security fix)
 router.get('/api/workspaces/:workspaceId/boards', authenticate, boardCtrl.getBoards);
